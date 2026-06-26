@@ -1,0 +1,20 @@
+# Set build arguments here. See `gn help buildargs`.
+is_official_build = true            # 设置为 true 是 Release build，默认为 debug build
+is_component_build = true    # 设置此项可以生成 dll。默认是构建静态库
+clang_win="C:\Program Files\LLVM"
+skia_use_libpng_decode = false
+skia_use_libpng_encode = false
+skia_use_libjpeg_turbo_decode = false
+skia_use_libjpeg_turbo_encode = false
+skia_use_libwebp_decode = false
+skia_use_libwebp_encode = false
+skia_use_icu = false
+skia_use_vulkan = false      # 如果不需要 Vulkan 可以关掉
+skia_use_dawn = false        # 关掉 WebGPU 后端
+skia_use_webgl = false       # 关掉 WebGL 后端
+skia_enable_pdf = false        # 彻底关闭 PDF 导出功能
+skia_enable_skottie = false    # 如果不用 Lottie 矢量动画，直接关掉
+skia_use_expat = false         # 关闭 XML 解析器
+skia_enable_svg = false        # 如果你打算自己写轻量级 SVG 渲染，可以关掉官方的
+
+is_trivial_abi = false             # 设置此项后，其他使用 skia 的程序可以使用任意编译器
