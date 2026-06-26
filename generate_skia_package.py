@@ -232,6 +232,10 @@ def main():
     
     args = parser.parse_args()
     
+    # 将相对路径转换为绝对路径
+    args.skia_repo_dir = os.path.abspath(args.skia_repo_dir)
+    args.build_dir = os.path.abspath(args.build_dir)
+    
     try:
         # 参数校验
         validate_directory(args.skia_repo_dir, "Skia 仓库")
