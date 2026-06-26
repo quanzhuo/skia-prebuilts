@@ -21,6 +21,7 @@ import platform
 import tempfile
 import hashlib
 import argparse
+import subprocess
 
 
 def validate_directory(path: str, name: str) -> None:
@@ -60,6 +61,71 @@ def get_cmake_file_path() -> str:
         return os.path.join(script_dir, "cmake", "linux.cmake")
     else:
         raise RuntimeError(f"不支持的平台: {system}")
+
+
+def get_args_gn_file_path() -> str:
+    """获取平台对应的 args.gn 文件路径"""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    system = platform.system().lower()
+    
+    if system == "windows":
+        return os.path.join(script_dir, "args.gn.windows")
+    elif system == "linux":
+        return os.path.join(script_dir, "args.gn.linux")
+    else:
+        raise RuntimeError(f"不支持的平台: {system}")
+
+
+def build_skia(skia_repo_dir: str, build_dir: str) -> None:
+    """
+    构建 Skia 库
+    
+    Args:
+        skia_repo_dir: Skia 仓库目录
+        build_dir: 构建目录
+    """
+    system = platform.system().lower()
+    
+    # 1. 如果构建目录不存在，创建它
+    if not os.path.exists(build_dir):
+        os.makedirs(build_dir)
+        print(f"已创建构建目录: {build_dir}")
+    
+    # 2. 根据平台，复制对应的 args.gn 文件到构建目录
+    args_gn_src = get_args_gn_file_path()
+    args_gn_dst = os.path.join(build_dir, "args.gn")
+    copy_file(args_gn_src, args_gn_dst)
+    print(f"已复制 args.gn: {args_gn_src} -> {args_gn_dst}")
+    
+    # 3. 在 skia 仓库根目录执行 ./bin/gn gen <构建目录>
+    gn_script = os.path.join(skia_repo_dir, "bin", "gn")
+    if system == "windows":
+        gn_script = gn_script + ".bat"
+    
+    print(f"正在执行 GN 生成: {gn_script} gen {build_dir}")
+    try:
+        result = subprocess.run(
+            [gn_script, "gen", build_dir],
+            cwd=skia_repo_dir,
+            check=True
+        )
+        print("GN 生成完成")
+    except subprocess.CalledProcessError as e:
+        print(f"GN 生成失败", file=sys.stderr)
+        raise RuntimeError(f"GN 生成失败")
+    
+    # 4. 在 skia 仓库根目录执行 ninja -C <构建目录>
+    print(f"正在执行 Ninja 编译: ninja -C {build_dir}")
+    try:
+        result = subprocess.run(
+            ["ninja", "-C", build_dir],
+            cwd=skia_repo_dir,
+            check=True
+        )
+        print("Ninja 编译完成")
+    except subprocess.CalledProcessError as e:
+        print(f"Ninja 编译失败", file=sys.stderr)
+        raise RuntimeError(f"Ninja 编译失败")
 
 
 def find_binary_files(build_dir: str, system: str) -> dict:
@@ -109,14 +175,27 @@ def create_package(skia_repo_dir: str, build_dir: str, output_folder_name: str) 
     binaries = find_binary_files(build_dir, system)
     
     if not binaries:
-        if system == "windows":
-            raise FileNotFoundError(
-                f"在构建目录中未找到 skia.dll 或 skia.dll.lib: {build_dir}"
-            )
-        else:
-            raise FileNotFoundError(
-                f"在构建目录中未找到 libskia.so: {build_dir}"
-            )
+        print(f"在构建目录中未找到 skia 二进制文件，开始自动构建...")
+        print("-" * 50)
+        
+        # 执行构建
+        build_skia(skia_repo_dir, build_dir)
+        
+        print("-" * 50)
+        print("构建完成，重新查找二进制文件...")
+        
+        # 重新查找二进制文件
+        binaries = find_binary_files(build_dir, system)
+        
+        if not binaries:
+            if system == "windows":
+                raise FileNotFoundError(
+                    f"构建完成后在构建目录中仍未找到 skia.dll 或 skia.dll.lib: {build_dir}"
+                )
+            else:
+                raise FileNotFoundError(
+                    f"构建完成后在构建目录中仍未找到 libskia.so: {build_dir}"
+                )
     
     # 创建临时目录
     temp_base = tempfile.gettempdir()
@@ -239,7 +318,7 @@ def main():
     try:
         # 参数校验
         validate_directory(args.skia_repo_dir, "Skia 仓库")
-        validate_directory(args.build_dir, "构建目录")
+        # validate_directory(args.build_dir, "构建目录")
         
         # 创建 Package
         system = platform.system()
