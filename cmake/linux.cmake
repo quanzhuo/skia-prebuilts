@@ -19,7 +19,7 @@ set_target_properties(skia PROPERTIES
 )
 
 # 暴露头文件和宏
-target_include_directories(skia INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_include_directories(skia INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_definitions(skia INTERFACE SKIA_DLL)
 
 # 将 Linux 系统依赖库绑定到接口上，传递给主项目

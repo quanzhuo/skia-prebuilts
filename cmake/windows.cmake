@@ -12,7 +12,7 @@ set_target_properties(skia PROPERTIES
 
 # 暴露头文件目录，让链接这个目标的程序能自动找到头文件
 target_include_directories(skia INTERFACE
-    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 
 # 定义 SKIA_DLL 宏,这样 Skia 头文件里的 SK_API 才会展开为 __declspec(dllimport)

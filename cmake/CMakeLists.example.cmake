@@ -9,8 +9,6 @@ set(BASE_URL "https://gitee.com/quanzhuo/skia-prebuilts/releases/download/${SKIA
 if(WIN32)
     # Windows 暂时默认 x64
     set(SKIA_PREBUILT_URL "${BASE_URL}/skia-${SKIA_VERSION}-win32-x64.zip")
-    set(SKIA_HASH "cd472ecd4914e19472e18fed416ebce546adb2d24c93b475edd040a0236b7245")
-
 elseif(UNIX AND NOT APPLE)
     # Linux 平台：开始细分 CPU 架构
     # CMAKE_SYSTEM_PROCESSOR 在 Linux 下常见的值有 x86_64, amd64, aarch64, arm64
@@ -18,14 +16,10 @@ elseif(UNIX AND NOT APPLE)
     
     if(ARCH MATCHES "x86_64" OR ARCH MATCHES "amd64")
         message(STATUS "Detected Linux x64 architecture")
-        set(SKIA_PREBUILT_URL "${BASE_URL}/skia-${SKIA_VERSION}-linux-x64.tar.gz")
-        set(SKIA_HASH "0d5be4d3113bbb7b619cd9c2f719b0f62a29cac403ce9eff1b02d2f262c2cc28")
-        
+        set(SKIA_PREBUILT_URL "${BASE_URL}/skia-${SKIA_VERSION}-linux-x64.tar.gz")        
     elseif(ARCH MATCHES "aarch64" OR ARCH MATCHES "arm64")
         message(STATUS "Detected Linux ARM64 architecture")
-        set(SKIA_PREBUILT_URL "${BASE_URL}/skia-${SKIA_VERSION}-linux-arm64.tar.gz")
-        set(SKIA_HASH "02cd8c96ca3f0e824e01116923bfdd2d08d550d1fdd494b9f7ac5252cd186b6c")
-        
+        set(SKIA_PREBUILT_URL "${BASE_URL}/skia-${SKIA_VERSION}-linux-arm64.tar.gz")        
     else()
         message(FATAL_ERROR "Unsupported Linux architecture: ${CMAKE_SYSTEM_PROCESSOR}")
     endif()
@@ -37,8 +31,7 @@ endif()
 FetchContent_Declare(
     skia_prebuilt
     URL "${SKIA_PREBUILT_URL}"
-    URL_HASH SHA256=${SKIA_HASH}
-    DOWNLOAD_EXTRACT_TIMESTAMP true
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(skia_prebuilt)
 

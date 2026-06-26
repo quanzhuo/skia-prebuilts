@@ -210,9 +210,9 @@ def create_package(skia_repo_dir: str, build_dir: str, output_folder_name: str) 
         
         # 创建子目录
         lib_dir = os.path.join(output_dir, "lib")
-        include_dir = os.path.join(output_dir, "include")
+        dst_include = os.path.join(output_dir, "include")
         os.makedirs(lib_dir, exist_ok=True)
-        os.makedirs(include_dir, exist_ok=True)
+        os.makedirs(dst_include, exist_ok=True)
         
         # Windows 额外创建 bin 目录
         if system == "windows":
@@ -223,8 +223,7 @@ def create_package(skia_repo_dir: str, build_dir: str, output_folder_name: str) 
         src_include = os.path.join(skia_repo_dir, "include")
         if not os.path.isdir(src_include):
             raise FileNotFoundError(f"Skia include 目录不存在: {src_include}")
-        
-        dst_include = os.path.join(include_dir, "skia")
+
         copy_directory(src_include, dst_include)
         print(f"已复制 include 文件夹: {src_include} -> {dst_include}")
         
