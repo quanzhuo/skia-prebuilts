@@ -19,4 +19,4 @@ target_include_directories(skia INTERFACE
 target_compile_definitions(skia INTERFACE SKIA_DLL)
 
 # 创建带命名空间的别名
-add_library(Skia::Skia ALIAS skia)
+add_library(Skia::skia ALIAS skia)

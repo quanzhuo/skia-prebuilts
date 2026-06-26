@@ -8,4 +8,4 @@ set_target_properties(skia PROPERTIES IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_
 target_include_directories(skia INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_definitions(skia INTERFACE SKIA_DLL)
 
-add_library(Skia::Skia ALIAS skia)
+add_library(Skia::skia ALIAS skia)
