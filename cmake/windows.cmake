@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(SkiaPrebuilt)
+project(SkiaPrebuilt LANGUAGES C CXX)
 
 # 创建全局导入目标
 add_library(skia SHARED IMPORTED GLOBAL)
@@ -17,6 +17,15 @@ target_include_directories(skia INTERFACE
 
 # 定义 SKIA_DLL 宏,这样 Skia 头文件里的 SK_API 才会展开为 __declspec(dllimport)
 target_compile_definitions(skia INTERFACE SKIA_DLL)
+
+target_link_libraries(skia INTERFACE
+    ole32
+    user32
+    gdi32
+    opengl32
+    fontsub
+    usp10
+)
 
 # 创建带命名空间的别名
 add_library(Skia::skia ALIAS skia)
