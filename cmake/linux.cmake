@@ -1,10 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 project(SkiaPrebuilt LANGUAGES C CXX)
 
-# 1. 寻找 Linux 系统中必要的依赖库（Skia 强依赖这些后端）
+# 1. 寻找 Linux 系统中必要的依赖库（Skia 的 Linux font manager 依赖 fontconfig）
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(FONTCONFIG REQUIRED fontconfig)
-pkg_check_modules(FREETYPE REQUIRED freetype2)
+pkg_check_modules(FONTCONFIG REQUIRED IMPORTED_TARGET fontconfig)
 
 # 寻找 OpenGL 和 X11 (如果你的 Skia 开启了 GPU 和 窗口支持)
 find_package(OpenGL REQUIRED)
@@ -24,8 +23,7 @@ target_compile_definitions(skia INTERFACE SKIA_DLL)
 
 # 将 Linux 系统依赖库绑定到接口上，传递给主项目
 target_link_libraries(skia INTERFACE
-    ${FONTCONFIG_LIBRARIES}
-    ${FREETYPE_LIBRARIES}
+    PkgConfig::FONTCONFIG
     OpenGL::GL
     ${X11_LIBRARIES}
     pthread
