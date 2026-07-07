@@ -99,8 +99,8 @@ def build_skia(skia_repo_dir: str, build_dir: str) -> None:
     
     # 3. 在 skia 仓库根目录执行 ./bin/gn gen <构建目录>
     gn_script = os.path.join(skia_repo_dir, "bin", "gn")
-    if system == "windows":
-        gn_script = gn_script + ".bat"
+    # if system == "windows":
+    #     gn_script = gn_script + ".bat"
     
     print(f"正在执行 GN 生成: {gn_script} gen {build_dir}")
     try:
