@@ -114,11 +114,12 @@ def build_skia(skia_repo_dir: str, build_dir: str) -> None:
         print(f"GN 生成失败", file=sys.stderr)
         raise RuntimeError(f"GN 生成失败")
     
-    # 4. 在 skia 仓库根目录执行 ninja -C <构建目录>
-    print(f"正在执行 Ninja 编译: ninja -C {build_dir}")
+    # 4. 在 skia 仓库根目录执行 ninja -C <构建目录> skia
+    # Skia 的默认 Ninja target 会包含测试/工具目标；预编译包只需要 skia 动态库。
+    print(f"正在执行 Ninja 编译: ninja -C {build_dir} skia")
     try:
         result = subprocess.run(
-            ["ninja", "-C", build_dir],
+            ["ninja", "-C", build_dir, "skia"],
             cwd=skia_repo_dir,
             check=True
         )
