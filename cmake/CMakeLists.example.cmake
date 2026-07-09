@@ -9,6 +9,19 @@ set(BASE_URL "https://gitee.com/quanzhuo/skia-prebuilts/releases/download/${SKIA
 if(WIN32)
     # Windows 暂时默认 x64
     set(SKIA_PREBUILT_URL "${BASE_URL}/skia-${SKIA_VERSION}-win32-x64.zip")
+elseif(APPLE)
+    # macOS 平台：区分 Intel 和 Apple Silicon
+    string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" ARCH)
+
+    if(ARCH MATCHES "x86_64" OR ARCH MATCHES "amd64")
+        message(STATUS "Detected macOS x64 architecture")
+        set(SKIA_PREBUILT_URL "${BASE_URL}/skia-${SKIA_VERSION}-macos-x64.tar.gz")
+    elseif(ARCH MATCHES "arm64" OR ARCH MATCHES "aarch64")
+        message(STATUS "Detected macOS ARM64 architecture")
+        set(SKIA_PREBUILT_URL "${BASE_URL}/skia-${SKIA_VERSION}-macos-arm64.tar.gz")
+    else()
+        message(FATAL_ERROR "Unsupported macOS architecture: ${CMAKE_SYSTEM_PROCESSOR}")
+    endif()
 elseif(UNIX AND NOT APPLE)
     # Linux 平台：开始细分 CPU 架构
     # CMAKE_SYSTEM_PROCESSOR 在 Linux 下常见的值有 x86_64, amd64, aarch64, arm64
@@ -47,6 +60,10 @@ if(WIN32)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "$<TARGET_FILE:skia>"
         "$<TARGET_FILE_DIR:my_skia_app>"
+    )
+elseif(APPLE)
+    set_target_properties(my_skia_app PROPERTIES
+        BUILD_RPATH "${skia_prebuilt_SOURCE_DIR}/lib"
     )
 elseif(UNIX AND NOT APPLE)
     set_target_properties(my_skia_app PROPERTIES

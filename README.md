@@ -4,7 +4,7 @@
 
 ## 功能
 
-- 自动检测 Skia 构建产物（Windows: `.dll/.dll.lib`，Linux: `.so`）
+- 自动检测 Skia 构建产物（Windows: `.dll/.dll.lib`，Linux: `.so`，macOS: `.dylib`）
 - 如果构建产物不存在，自动执行 GN + Ninja 构建
 - 生成跨平台的 CMake Package，方便其他项目集成 Skia
 
@@ -21,6 +21,7 @@ python generate_skia_package.py <skia_repo_dir> <build_dir> <output_folder_name>
 | `skia_repo_dir` | Skia 仓库目录（包含 `include` 文件夹） |
 | `build_dir` | 构建目录（GN/Ninja 的输出目录） |
 | `output_folder_name` | 输出文件夹名称 |
+| `--target-cpu` | macOS 可选参数，支持 `x64`/`arm64`，默认使用当前机器架构 |
 
 ### 示例
 
@@ -34,15 +35,22 @@ python generate_skia_package.py C:\skia C:\skia\out\Release skia-win-x64
 python generate_skia_package.py /path/to/skia /path/to/skia/out/Release skia-linux-x64
 ```
 
+**macOS:**
+```bash
+python generate_skia_package.py /path/to/skia /path/to/skia/out/Release skia-macos-arm64 --target-cpu arm64
+python generate_skia_package.py /path/to/skia /path/to/skia/out/Release skia-macos-x64 --target-cpu x64
+```
+
 ## 输出
 
-脚本会生成一个压缩包（Windows: `.zip`，Linux: `.tar.gz`），包含：
+脚本会生成一个压缩包（Windows: `.zip`，Linux/macOS: `.tar.gz`），包含：
 
 ```
 <output_folder_name>/
 ├── CMakeLists.txt      # CMake 配置文件
 ├── lib/                # 库文件
 │   └── libskia.so      # Linux
+│   └── libskia.dylib   # macOS
 │   └── skia.dll.lib    # Windows
 ├── bin/                # Windows 专用
 │   └── skia.dll
@@ -62,5 +70,6 @@ python generate_skia_package.py /path/to/skia /path/to/skia/out/Release skia-lin
 ## 配置文件
 
 - `args.gn.linux` - Linux 构建配置
+- `args.gn.macos` - macOS 构建配置
 - `args.gn.windows` - Windows 构建配置
 - `cmake/` - CMake Package 配置文件
