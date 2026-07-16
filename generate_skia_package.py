@@ -292,6 +292,22 @@ def create_package(
 
         copy_directory(src_include, dst_include)
         print(f"已复制 include 文件夹: {src_include} -> {dst_include}")
+
+        # Skia 的公开头文件会引用 include 目录之外的 skcms 头文件。
+        # 保持它们在 Skia 仓库中的相对路径，使原有 #include 语句可以正常解析。
+        extra_header_paths = [
+            ("modules", "skcms", "skcms.h"),
+            ("modules", "skcms", "src", "skcms_public.h"),
+        ]
+        for path_parts in extra_header_paths:
+            relative_path = os.path.join(*path_parts)
+            src_header = os.path.join(skia_repo_dir, relative_path)
+            dst_header = os.path.join(output_dir, relative_path)
+            if not os.path.isfile(src_header):
+                raise FileNotFoundError(f"Skia 必需头文件不存在: {src_header}")
+
+            copy_file(src_header, dst_header)
+            print(f"已复制必需头文件: {src_header} -> {dst_header}")
         
         # 复制二进制文件
         if system == "windows":
