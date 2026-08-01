@@ -14,11 +14,16 @@ clang_win = "C:\Program Files\LLVM"
 skia_enable_tools = false
 
 # FluidUI 当前使用 Skia Ganesh GPU API。
-# Windows GPU 后端选择 Direct3D 12；禁用 GL/Vulkan/Dawn/WebGL，保持包的 ABI 和系统依赖收敛。
+# Windows 桌面 UI 通过 ANGLE 把 OpenGL ES 映射到 Direct3D 11。D3D11 的驱动覆盖、
+# DirectComposition 互操作和小型 UI 工作负载的资源开销都比直接管理 D3D12 更合适。
+# ANGLE 作为包的一部分发布，避免宿主应用依赖系统 OpenGL 或自行匹配 ANGLE 版本。
 skia_enable_ganesh = true
-skia_use_gl = false
+skia_use_gl = true
+skia_use_angle = true
+skia_gl_standard = "gles"
+skia_use_egl = false
 skia_use_vulkan = false
-skia_use_direct3d = true
+skia_use_direct3d = false
 skia_use_dawn = false
 skia_use_webgl = false
 

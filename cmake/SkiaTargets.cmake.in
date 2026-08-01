@@ -22,6 +22,8 @@ set_target_properties(Skia::Skia PROPERTIES
 @SKIA_IMPORTED_LOCATION_PROPERTIES@
 )
 
+@SKIA_AUXILIARY_IMPORTED_TARGETS@
+
 unset(_skia_imported_location)
 unset(_skia_imported_locations)
 unset(_skia_package_prefix)

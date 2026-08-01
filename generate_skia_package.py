@@ -23,6 +23,7 @@ import hashlib
 import argparse
 import subprocess
 import re
+from contextlib import contextmanager
 from typing import Optional
 
 
@@ -60,6 +61,62 @@ def get_script_dir() -> str:
 def get_cmake_template_path(template_name: str) -> str:
     """获取 CMake package 模板文件路径"""
     return os.path.join(get_script_dir(), "cmake", template_name)
+
+
+def get_source_patch_paths(system: str) -> list[str]:
+    """返回构建指定平台所需的、受版本控制的 Skia source patches。"""
+    if system == "windows":
+        return [os.path.join(
+            get_script_dir(), "patches", "0001-expose-angle-runtime-target.patch")]
+    return []
+
+
+def git_apply_check(repo_dir: str, patch_path: str, reverse: bool = False) -> bool:
+    command = ["git", "apply", "--check"]
+    if reverse:
+        command.append("--reverse")
+    command.append(patch_path)
+    result = subprocess.run(
+        command,
+        cwd=repo_dir,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+@contextmanager
+def applied_source_patches(skia_repo_dir: str, system: str):
+    """临时应用打包 patch，并且只撤销本次调用实际应用的 patch。"""
+    applied = []
+    try:
+        for patch_path in get_source_patch_paths(system):
+            if not os.path.isfile(patch_path):
+                raise FileNotFoundError(f"Skia source patch 不存在: {patch_path}")
+
+            if git_apply_check(skia_repo_dir, patch_path):
+                subprocess.run(
+                    ["git", "apply", patch_path],
+                    cwd=skia_repo_dir,
+                    check=True,
+                )
+                applied.append(patch_path)
+                print(f"已临时应用 Skia source patch: {patch_path}")
+            elif git_apply_check(skia_repo_dir, patch_path, reverse=True):
+                print(f"Skia source patch 已存在，保持现状: {patch_path}")
+            else:
+                raise RuntimeError(
+                    f"Skia source patch 无法应用到当前源码版本: {patch_path}")
+        yield
+    finally:
+        for patch_path in reversed(applied):
+            subprocess.run(
+                ["git", "apply", "--reverse", patch_path],
+                cwd=skia_repo_dir,
+                check=True,
+            )
+            print(f"已撤销临时 Skia source patch: {patch_path}")
 
 
 def read_text_file(path: str) -> str:
@@ -162,7 +219,7 @@ def get_cmake_platform_condition(system: str) -> str:
 def get_gpu_backends(system: str) -> str:
     """获取包内启用的 GPU 后端描述"""
     if system == "windows":
-        return "D3D12"
+        return "ANGLE;EGL;OpenGLES"
     if system == "linux":
         return "Vulkan;EGL;GL"
     if system == "darwin":
@@ -173,18 +230,25 @@ def get_gpu_backends(system: str) -> str:
 def get_interface_compile_definitions(system: str) -> str:
     """获取 Skia imported target 的 public compile definitions"""
     if system == "windows":
-        return "SKIA_DLL;SK_GANESH;SK_DIRECT3D"
+        return "SKIA_DLL;SK_GANESH;SK_GL;SK_RELEASE"
     if system == "linux":
-        return "SKIA_DLL;SK_GANESH;SK_VULKAN;SK_GL;SK_USE_INTERNAL_VULKAN_HEADERS;SK_R32_SHIFT=16"
+        return "SKIA_DLL;SK_GANESH;SK_VULKAN;SK_GL;SK_USE_INTERNAL_VULKAN_HEADERS;SK_R32_SHIFT=16;SK_RELEASE"
     if system == "darwin":
-        return "SKIA_DLL;SK_GANESH;SK_METAL"
+        return "SKIA_DLL;SK_GANESH;SK_METAL;SK_RELEASE"
     raise RuntimeError(f"不支持的平台: {system}")
 
 
 def get_imported_location_checks(system: str) -> str:
     """获取 SkiaTargets.cmake 用来校验包完整性的文件列表"""
     if system == "windows":
-        return '    "${_skia_package_prefix}/bin/skia.dll"\n    "${_skia_package_prefix}/lib/skia.dll.lib"'
+        return (
+            '    "${_skia_package_prefix}/bin/skia.dll"\n'
+            '    "${_skia_package_prefix}/lib/skia.dll.lib"\n'
+            '    "${_skia_package_prefix}/bin/libEGL.dll"\n'
+            '    "${_skia_package_prefix}/lib/libEGL.dll.lib"\n'
+            '    "${_skia_package_prefix}/bin/libGLESv2.dll"\n'
+            '    "${_skia_package_prefix}/lib/libGLESv2.dll.lib"'
+        )
     if system == "linux":
         return '    "${_skia_package_prefix}/lib/libskia.so"'
     if system == "darwin":
@@ -204,6 +268,33 @@ def get_imported_location_properties(system: str) -> str:
     if system == "darwin":
         return '    IMPORTED_LOCATION "${_skia_package_prefix}/lib/libskia.dylib"'
     raise RuntimeError(f"不支持的平台: {system}")
+
+
+def get_auxiliary_imported_targets(system: str) -> str:
+    """生成 Skia 随包运行时的 imported targets。"""
+    if system != "windows":
+        return ""
+
+    return '''
+add_library(Skia::AngleEGL SHARED IMPORTED)
+set_target_properties(Skia::AngleEGL PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${_skia_package_prefix}/angle/include"
+    IMPORTED_LOCATION "${_skia_package_prefix}/bin/libEGL.dll"
+    IMPORTED_IMPLIB "${_skia_package_prefix}/lib/libEGL.dll.lib"
+)
+
+add_library(Skia::AngleGLESv2 SHARED IMPORTED)
+set_target_properties(Skia::AngleGLESv2 PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${_skia_package_prefix}/angle/include"
+    IMPORTED_LOCATION "${_skia_package_prefix}/bin/libGLESv2.dll"
+    IMPORTED_IMPLIB "${_skia_package_prefix}/lib/libGLESv2.dll.lib"
+)
+
+add_library(Skia::Angle INTERFACE IMPORTED)
+set_target_properties(Skia::Angle PROPERTIES
+    INTERFACE_LINK_LIBRARIES "Skia::AngleEGL;Skia::AngleGLESv2"
+)
+'''.strip()
 
 
 def normalize_macos_target_cpu(target_cpu: Optional[str]) -> str:
@@ -279,7 +370,7 @@ def build_args_gn_is_current(build_dir: str, system: str, target_cpu: Optional[s
 def get_expected_binary_description(system: str) -> str:
     """获取平台对应的 Skia 二进制产物描述"""
     if system == "windows":
-        return "skia.dll 和 skia.dll.lib"
+        return "Skia、ANGLE EGL 和 ANGLE GLESv2 的 DLL 与 import library"
     elif system == "linux":
         return "libskia.so"
     elif system == "darwin":
@@ -298,47 +389,48 @@ def build_skia(skia_repo_dir: str, build_dir: str, target_cpu: Optional[str] = N
     """
     system = platform.system().lower()
 
-    # 1. 如果构建目录不存在，创建它
-    if not os.path.exists(build_dir):
-        os.makedirs(build_dir)
-        print(f"已创建构建目录: {build_dir}")
+    with applied_source_patches(skia_repo_dir, system):
+        # 1. 如果构建目录不存在，创建它
+        if not os.path.exists(build_dir):
+            os.makedirs(build_dir)
+            print(f"已创建构建目录: {build_dir}")
 
-    # 2. 根据平台，复制对应的 args.gn 文件到构建目录
-    args_gn_src = get_args_gn_file_path()
-    args_gn_dst = os.path.join(build_dir, "args.gn")
-    prepare_args_gn_file(args_gn_src, args_gn_dst, system, target_cpu)
-    print(f"已复制 args.gn: {args_gn_src} -> {args_gn_dst}")
+        # 2. 根据平台，复制对应的 args.gn 文件到构建目录
+        args_gn_src = get_args_gn_file_path()
+        args_gn_dst = os.path.join(build_dir, "args.gn")
+        prepare_args_gn_file(args_gn_src, args_gn_dst, system, target_cpu)
+        print(f"已复制 args.gn: {args_gn_src} -> {args_gn_dst}")
 
-    # 3. 在 skia 仓库根目录执行 ./bin/gn gen <构建目录>
-    gn_script = os.path.join(skia_repo_dir, "bin", "gn")
-    # if system == "windows":
-    #     gn_script = gn_script + ".bat"
+        # 3. 在 skia 仓库根目录执行 ./bin/gn gen <构建目录>
+        gn_script = os.path.join(skia_repo_dir, "bin", "gn")
 
-    print(f"正在执行 GN 生成: {gn_script} gen {build_dir}")
-    try:
-        result = subprocess.run(
-            [gn_script, "gen", build_dir],
-            cwd=skia_repo_dir,
-            check=True
-        )
-        print("GN 生成完成")
-    except subprocess.CalledProcessError as e:
-        print(f"GN 生成失败", file=sys.stderr)
-        raise RuntimeError(f"GN 生成失败")
+        print(f"正在执行 GN 生成: {gn_script} gen {build_dir}")
+        try:
+            subprocess.run(
+                [gn_script, "gen", build_dir],
+                cwd=skia_repo_dir,
+                check=True
+            )
+            print("GN 生成完成")
+        except subprocess.CalledProcessError:
+            print("GN 生成失败", file=sys.stderr)
+            raise RuntimeError("GN 生成失败")
 
-    # 4. 在 skia 仓库根目录执行 ninja -C <构建目录> skia
-    # Skia 的默认 Ninja target 会包含测试/工具目标；预编译包只需要 skia 动态库。
-    print(f"正在执行 Ninja 编译: ninja -C {build_dir} skia")
-    try:
-        result = subprocess.run(
-            ["ninja", "-C", build_dir, "skia"],
-            cwd=skia_repo_dir,
-            check=True
-        )
-        print("Ninja 编译完成")
-    except subprocess.CalledProcessError as e:
-        print(f"Ninja 编译失败", file=sys.stderr)
-        raise RuntimeError(f"Ninja 编译失败")
+        # 4. 在 skia 仓库根目录执行所需的最小 Ninja targets。
+        targets = ["skia"]
+        if system == "windows":
+            targets.append("skia_angle_runtime")
+        print(f"正在执行 Ninja 编译: ninja -C {build_dir} {' '.join(targets)}")
+        try:
+            subprocess.run(
+                ["ninja", "-C", build_dir, *targets],
+                cwd=skia_repo_dir,
+                check=True
+            )
+            print("Ninja 编译完成")
+        except subprocess.CalledProcessError:
+            print("Ninja 编译失败", file=sys.stderr)
+            raise RuntimeError("Ninja 编译失败")
 
 
 def find_binary_files(build_dir: str, system: str) -> dict:
@@ -346,14 +438,19 @@ def find_binary_files(build_dir: str, system: str) -> dict:
     binaries = {}
 
     if system == "windows":
-        # Windows: 查找 .dll 和 .dll.lib 文件
-        dll_path = os.path.join(build_dir, "skia.dll")
-        lib_path = os.path.join(build_dir, "skia.dll.lib")
-
-        if os.path.isfile(dll_path):
-            binaries["dll"] = dll_path
-        if os.path.isfile(lib_path):
-            binaries["lib"] = lib_path
+        # Windows: Skia 与 ANGLE 都是 component DLL。
+        windows_outputs = {
+            "dll": "skia.dll",
+            "lib": "skia.dll.lib",
+            "egl_dll": "libEGL.dll",
+            "egl_lib": "libEGL.dll.lib",
+            "gles_dll": "libGLESv2.dll",
+            "gles_lib": "libGLESv2.dll.lib",
+        }
+        for key, file_name in windows_outputs.items():
+            path = os.path.join(build_dir, file_name)
+            if os.path.isfile(path):
+                binaries[key] = path
 
     elif system == "linux":
         # Linux: 查找 .so 文件
@@ -375,7 +472,8 @@ def find_binary_files(build_dir: str, system: str) -> dict:
 def has_required_binary_files(binaries: dict, system: str) -> bool:
     """判断当前平台所需的全部 Skia 二进制产物是否齐全"""
     if system == "windows":
-        return "dll" in binaries and "lib" in binaries
+        return all(key in binaries for key in (
+            "dll", "lib", "egl_dll", "egl_lib", "gles_dll", "gles_lib"))
     elif system == "linux":
         return "so" in binaries
     elif system == "darwin":
@@ -407,6 +505,7 @@ def write_cmake_package_files(
         "SKIA_INTERFACE_COMPILE_DEFINITIONS": get_interface_compile_definitions(system),
         "SKIA_IMPORTED_LOCATION_CHECKS": get_imported_location_checks(system),
         "SKIA_IMPORTED_LOCATION_PROPERTIES": get_imported_location_properties(system),
+        "SKIA_AUXILIARY_IMPORTED_TARGETS": get_auxiliary_imported_targets(system),
     }
 
     for template_name, output_name in (
@@ -504,6 +603,15 @@ def create_package(
         copy_directory(src_include, dst_include)
         print(f"已复制 include 文件夹: {src_include} -> {dst_include}")
 
+        if system == "windows":
+            angle_include = os.path.join(
+                skia_repo_dir, "third_party", "externals", "angle2", "include")
+            if not os.path.isdir(angle_include):
+                raise FileNotFoundError(f"ANGLE include 目录不存在: {angle_include}")
+            dst_angle_include = os.path.join(output_dir, "angle", "include")
+            copy_directory(angle_include, dst_angle_include)
+            print(f"已复制 ANGLE include 文件夹: {angle_include} -> {dst_angle_include}")
+
         # Skia 的公开头文件会引用 include 目录之外的 skcms 头文件。
         # 保持它们在 Skia 仓库中的相对路径，使原有 #include 语句可以正常解析。
         extra_header_paths = [
@@ -531,6 +639,16 @@ def create_package(
                 dst_lib = os.path.join(lib_dir, "skia.dll.lib")
                 copy_file(binaries["lib"], dst_lib)
                 print(f"已复制 LIB: {binaries['lib']} -> {dst_lib}")
+
+            for binary_key, file_name, destination_dir in (
+                ("egl_dll", "libEGL.dll", bin_dir),
+                ("egl_lib", "libEGL.dll.lib", lib_dir),
+                ("gles_dll", "libGLESv2.dll", bin_dir),
+                ("gles_lib", "libGLESv2.dll.lib", lib_dir),
+            ):
+                destination = os.path.join(destination_dir, file_name)
+                copy_file(binaries[binary_key], destination)
+                print(f"已复制 ANGLE 产物: {binaries[binary_key]} -> {destination}")
 
         elif system == "linux":
             if "so" in binaries:

@@ -1,0 +1,17 @@
+diff --git a/BUILD.gn b/BUILD.gn
+index 0000000000..1111111111 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -4067,3 +4067,12 @@ if (skia_build_rust_targets) {
+     ]
+   }
+ }
++
++# Packaging-only target. Skia's component library intentionally does not link
++# ANGLE, but the FluidUI binary package ships the matching ANGLE runtime next
++# to Skia. Keeping this dependency in a separate group preserves that boundary.
++if (skia_use_angle) {
++  group("skia_angle_runtime") {
++    public_deps = [ "//third_party/angle2" ]
++  }
++}

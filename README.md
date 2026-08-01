@@ -7,7 +7,7 @@
 - 自动检测 Skia 构建产物（Windows: `.dll/.dll.lib`，Linux: `.so`，macOS: `.dylib`）
 - 如果构建产物不存在，或构建目录中的 `args.gn` 与当前模板不一致，自动执行 GN + Ninja 构建
 - 生成标准 CMake config package，方便其他项目通过 `find_package(Skia CONFIG REQUIRED)` 集成 Skia
-- 默认生成 GPU-capable Skia：Windows 使用 Ganesh + Direct3D，Linux 使用 Ganesh + Vulkan + EGL/GL，macOS 使用 Ganesh + Metal
+- 默认生成 GPU-capable Skia：Windows 使用 Ganesh + ANGLE/EGL（D3D11），Linux 使用 Ganesh + Vulkan + EGL/GL，macOS 使用 Ganesh + Metal
 
 ## 使用方法
 
@@ -53,12 +53,17 @@ python generate_skia_package.py /path/to/skia /path/to/skia/out/Release skia-m14
 │   ├── libskia.so      # Linux
 │   ├── libskia.dylib   # macOS
 │   ├── skia.dll.lib    # Windows
+│   ├── libEGL.dll.lib  # Windows ANGLE
+│   ├── libGLESv2.dll.lib
 │   └── cmake/Skia/
 │       ├── SkiaConfig.cmake
 │       ├── SkiaConfigVersion.cmake
 │       └── SkiaTargets.cmake
 ├── bin/                # Windows 专用
-│   └── skia.dll
+│   ├── skia.dll
+│   ├── libEGL.dll
+│   └── libGLESv2.dll
+├── angle/include/      # Windows ANGLE EGL/GLES headers
 └── include/
     ├── core/           # Skia public headers
     ├── gpu/
@@ -90,6 +95,12 @@ find_package(Skia CONFIG REQUIRED PATHS "/path/to/skia-prebuilt" NO_DEFAULT_PATH
 target_link_libraries(my_app PRIVATE Skia::Skia)
 ```
 
+Windows GPU consumers additionally link the package-owned runtime target:
+
+```cmake
+target_link_libraries(my_app PRIVATE Skia::Skia Skia::Angle)
+```
+
 如果使用 `FetchContent` 下载预编译包，`FetchContent` 只负责下载和解压，随后仍然调用 `find_package`：
 
 ```cmake
@@ -112,6 +123,6 @@ target_link_libraries(my_app PRIVATE Skia::Skia)
 
 ### GPU 后端
 
-- Windows: `skia_enable_ganesh = true`, `skia_use_direct3d = true`, `skia_use_gl = false`
+- Windows: `skia_enable_ganesh = true`, `skia_use_angle = true`, `skia_use_gl = true`, `skia_gl_standard = "gles"`; the package exports `Skia::Angle`, `Skia::AngleEGL`, and `Skia::AngleGLESv2`
 - Linux: `skia_enable_ganesh = true`, `skia_use_vulkan = true`, `skia_use_gl = true`, `skia_use_egl = true`, `skia_use_x11 = false`
 - macOS: `skia_enable_ganesh = true`, `skia_use_metal = true`, `skia_use_gl = false`
