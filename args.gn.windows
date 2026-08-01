@@ -1,25 +1,36 @@
 # Set build arguments here. See `gn help buildargs`.
-is_official_build = true    # 设置为 true 是 Release build，默认为 debug build
-is_component_build = true   # 设置此项可以生成 dll。默认是构建静态库
-is_trivial_abi = false      # 设置此项后，其他使用 skia 的程序可以使用任意编译器
+
+# 预编译包面向下游 CMake 项目，而不是 Skia 自身开发。
+# official + component build 生成优化后的 skia.dll / skia.dll.lib。
+is_official_build = true
+is_component_build = true
+
+# 不启用 Skia 的 trivial ABI 优化，避免 C++ DLL 边界更依赖特定编译器 ABI 细节。
+is_trivial_abi = false
 
 clang_win = "C:\Program Files\LLVM"
 
+# 不构建 viewer、bench、tests 等工具；component build 下这些工具也依赖很多非导出符号。
 skia_enable_tools = false
 
-skia_enable_ganesh = false
+# FluidUI 当前使用 Skia Ganesh GPU API。
+# Windows GPU 后端选择 Direct3D 12；禁用 GL/Vulkan/Dawn/WebGL，保持包的 ABI 和系统依赖收敛。
+skia_enable_ganesh = true
+skia_use_gl = false
 skia_use_vulkan = false
-skia_use_direct3d = false
+skia_use_direct3d = true
 skia_use_dawn = false
 skia_use_webgl = false
 
-skia_use_harfbuzz = false   # Skia 内部不链接 HarfBuzz
-skia_use_icu = false        # Skia 内部不链接 ICU
+# FluidUI 自己管理文本 shaping / Unicode 依赖，Skia 包只承担绘制和图片解码。
+skia_use_harfbuzz = false
+skia_use_icu = false
 
-
-skia_enable_fontmgr_win_gdi = false   # 关闭 GDI font manager；DirectWrite font manager 仍保持开启
+# 关闭旧 GDI font manager；Windows 字体路径使用 Skia 默认 DirectWrite 支持。
+skia_enable_fontmgr_win_gdi = false
 skia_use_freetype = false
 
+# 只启用图片解码能力；编码器暂时不是 FluidUI runtime 依赖，保持包体积较小。
 skia_use_libpng_decode = true
 skia_use_libpng_encode = false
 skia_use_libjpeg_turbo_decode = true
@@ -27,11 +38,13 @@ skia_use_libjpeg_turbo_encode = false
 skia_use_libwebp_decode = true
 skia_use_libwebp_encode = false
 
+# 使用 Skia third_party 里的 codec/zlib，避免下游应用复现一组系统依赖版本。
 skia_use_system_libpng = false
 skia_use_system_libjpeg_turbo = false
 skia_use_system_libwebp = false
 skia_use_system_zlib = false
 
+# 关闭当前 UI runtime 不需要的文档/动画/SVG/RAW/XPS 等模块。
 skia_enable_pdf = false
 skia_enable_skottie = false
 skia_enable_svg = false
@@ -40,4 +53,5 @@ skia_use_dng_sdk = false
 skia_use_piex = false
 skia_use_xps = false
 
+# 不引入 Chromium PartitionAlloc，降低预编译包和宿主进程的 allocator 耦合。
 skia_use_partition_alloc = false

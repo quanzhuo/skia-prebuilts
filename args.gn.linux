@@ -1,24 +1,42 @@
+# Set build arguments here. See `gn help buildargs`.
+
+# 预编译包面向下游 CMake 项目，而不是 Skia 自身开发。
+# official + component build 生成优化后的 libskia.so。
 is_official_build = true
 is_component_build = true
+
+# 不启用 Skia 的 trivial ABI 优化，避免 C++ shared library 边界更依赖特定编译器 ABI 细节。
 is_trivial_abi = false
 
 cc = "clang"
 cxx = "clang++"
 
+# 不构建 viewer、bench、tests 等工具；预编译包只发布 runtime library。
 skia_enable_tools = false
 
-skia_enable_ganesh = false
-skia_use_vulkan = false
+# FluidUI 当前使用 Skia Ganesh GPU API。
+# Linux 不能假设 Vulkan 一定可用，所以同时编入 Vulkan 和 EGL/GL：
+# - Vulkan 是现代首选路径；
+# - EGL/GL 作为没有 Vulkan、驱动不完整、VM/容器等场景下的 GPU fallback；
+# - 禁用 X11/GLX，避免把包绑定到 X11，Wayland 和 headless/embedded 场景更干净。
+skia_enable_ganesh = true
+skia_use_gl = true
+skia_use_egl = true
+skia_use_vulkan = true
 skia_use_dawn = false
 skia_use_webgl = false
+skia_use_x11 = false
 
+# FluidUI 自己管理文本 shaping / Unicode 依赖，Skia 包只承担绘制和图片解码。
 skia_use_harfbuzz = false
 skia_use_icu = false
 
+# Linux 字体发现依赖 fontconfig + freetype；使用 bundled freetype，避免系统 freetype 版本漂移。
 skia_use_fontconfig = true
 skia_use_freetype = true
 skia_use_system_freetype2 = false
 
+# 只启用图片解码能力；编码器暂时不是 FluidUI runtime 依赖，保持包体积较小。
 skia_use_libpng_decode = true
 skia_use_libpng_encode = false
 skia_use_libjpeg_turbo_decode = true
@@ -26,11 +44,13 @@ skia_use_libjpeg_turbo_encode = false
 skia_use_libwebp_decode = true
 skia_use_libwebp_encode = false
 
+# 使用 Skia third_party 里的 codec/zlib，避免下游应用复现一组系统依赖版本。
 skia_use_system_libpng = false
 skia_use_system_libjpeg_turbo = false
 skia_use_system_libwebp = false
 skia_use_system_zlib = false
 
+# 关闭当前 UI runtime 不需要的文档/动画/SVG/RAW 等模块。
 skia_enable_pdf = false
 skia_enable_skottie = false
 skia_enable_svg = false
@@ -38,4 +58,5 @@ skia_use_expat = false
 skia_use_dng_sdk = false
 skia_use_piex = false
 
+# 不引入 Chromium PartitionAlloc，降低预编译包和宿主进程的 allocator 耦合。
 skia_use_partition_alloc = false

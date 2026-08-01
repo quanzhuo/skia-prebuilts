@@ -1,0 +1,33 @@
+if(NOT (@SKIA_CMAKE_PLATFORM_CONDITION@))
+    set(Skia_FOUND FALSE)
+    set(Skia_NOT_FOUND_MESSAGE "This Skia prebuilt package targets @SKIA_PREBUILT_PLATFORM@, but the current CMake platform is ${CMAKE_SYSTEM_NAME}.")
+    return()
+endif()
+
+if(NOT COMMAND check_required_components)
+    macro(check_required_components _package_name)
+        foreach(_component ${${_package_name}_FIND_COMPONENTS})
+            if(NOT ${_package_name}_${_component}_FOUND)
+                if(${_package_name}_FIND_REQUIRED_${_component})
+                    set(${_package_name}_FOUND FALSE)
+                endif()
+            endif()
+        endforeach()
+    endmacro()
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/SkiaTargets.cmake")
+
+set(Skia_VERSION "@SKIA_PACKAGE_VERSION@")
+set(Skia_MILESTONE "@SKIA_MILESTONE@")
+set(Skia_COMMIT "@SKIA_COMMIT@")
+set(Skia_PREBUILT_PLATFORM "@SKIA_PREBUILT_PLATFORM@")
+set(Skia_GPU_BACKENDS "@SKIA_GPU_BACKENDS@")
+
+if(NOT TARGET Skia::Skia)
+    set(Skia_FOUND FALSE)
+    set(Skia_NOT_FOUND_MESSAGE "SkiaTargets.cmake did not define Skia::Skia.")
+    return()
+endif()
+
+check_required_components(Skia)

@@ -1,0 +1,27 @@
+if(TARGET Skia::Skia)
+    return()
+endif()
+
+get_filename_component(_skia_package_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
+
+set(_skia_imported_locations
+@SKIA_IMPORTED_LOCATION_CHECKS@
+)
+
+foreach(_skia_imported_location IN LISTS _skia_imported_locations)
+    if(NOT EXISTS "${_skia_imported_location}")
+        message(FATAL_ERROR "Skia prebuilt package is incomplete. Missing file: ${_skia_imported_location}")
+    endif()
+endforeach()
+
+add_library(Skia::Skia SHARED IMPORTED)
+
+set_target_properties(Skia::Skia PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${_skia_package_prefix}"
+    INTERFACE_COMPILE_DEFINITIONS "@SKIA_INTERFACE_COMPILE_DEFINITIONS@"
+@SKIA_IMPORTED_LOCATION_PROPERTIES@
+)
+
+unset(_skia_imported_location)
+unset(_skia_imported_locations)
+unset(_skia_package_prefix)
