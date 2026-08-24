@@ -229,13 +229,53 @@ def get_gpu_backends(system: str) -> str:
 
 def get_interface_compile_definitions(system: str) -> str:
     """获取 Skia imported target 的 public compile definitions"""
+    common_definitions = [
+        "SKIA_DLL",
+        "SK_RELEASE",
+        "SK_DISABLE_TRACING",
+        "SK_CODEC_DECODES_BMP",
+        "SK_CODEC_DECODES_WBMP",
+        "SK_CODEC_DECODES_ICO",
+        "SK_CODEC_DECODES_JPEG",
+        "SK_CODEC_DECODES_PNG",
+        "SK_CODEC_DECODES_PNG_WITH_LIBPNG",
+        "SK_CODEC_ENCODES_PNG",
+        "SK_CODEC_ENCODES_PNG_WITH_LIBPNG",
+    ]
+
     if system == "windows":
-        return "SKIA_DLL;SK_GANESH;SK_GL;SK_RELEASE"
-    if system == "linux":
-        return "SKIA_DLL;SK_GANESH;SK_VULKAN;SK_GL;SK_USE_INTERNAL_VULKAN_HEADERS;SK_R32_SHIFT=16;SK_RELEASE"
-    if system == "darwin":
-        return "SKIA_DLL;SK_GANESH;SK_METAL;SK_RELEASE"
-    raise RuntimeError(f"不支持的平台: {system}")
+        platform_definitions = [
+            "SK_GANESH",
+            "SK_GL",
+            "SK_ASSUME_GL_ES=1",
+            "SK_TYPEFACE_FACTORY_DIRECTWRITE",
+            "SK_FONTMGR_DIRECTWRITE_AVAILABLE",
+        ]
+    elif system == "linux":
+        platform_definitions = [
+            "SK_GANESH",
+            "SK_VULKAN",
+            "SK_GL",
+            "SK_USE_INTERNAL_VULKAN_HEADERS",
+            "SK_R32_SHIFT=16",
+            "SK_FONTMGR_FREETYPE_DIRECTORY_AVAILABLE",
+            "SK_FONTMGR_FREETYPE_EMBEDDED_AVAILABLE",
+            "SK_FONTMGR_FREETYPE_EMPTY_AVAILABLE",
+            "SK_FONTMGR_FONTCONFIG_AVAILABLE",
+            "SK_FONTMGR_FCI_AVAILABLE",
+        ]
+    elif system == "darwin":
+        platform_definitions = [
+            "SK_GANESH",
+            "SK_METAL",
+            "SK_ENABLE_API_AVAILABLE",
+            "SK_TYPEFACE_FACTORY_CORETEXT",
+            "SK_FONTMGR_CORETEXT_AVAILABLE",
+        ]
+    else:
+        raise RuntimeError(f"不支持的平台: {system}")
+
+    return ";".join(common_definitions + platform_definitions)
 
 
 def get_imported_location_checks(system: str) -> str:
