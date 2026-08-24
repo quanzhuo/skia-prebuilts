@@ -35,12 +35,13 @@ skia_use_icu = false
 skia_enable_fontmgr_win_gdi = false
 skia_use_freetype = false
 
-# 只启用图片解码能力；编码器暂时不是 FluidUI runtime 依赖，保持包体积较小。
+# FluidUI 公共位图基线保证 PNG 编解码和 JPEG 解码。JPEG 编码和 WebP
+# 尚未进入公共契约，不让预编译包为未使用能力付出代码体积。
 skia_use_libpng_decode = true
-skia_use_libpng_encode = false
+skia_use_libpng_encode = true
 skia_use_libjpeg_turbo_decode = true
 skia_use_libjpeg_turbo_encode = false
-skia_use_libwebp_decode = true
+skia_use_libwebp_decode = false
 skia_use_libwebp_encode = false
 
 # 使用 Skia third_party 里的 codec/zlib，避免下游应用复现一组系统依赖版本。
