@@ -1,40 +1,35 @@
 # Set build arguments here. See `gn help buildargs`.
 
 # 预编译包面向下游 CMake 项目，而不是 Skia 自身开发。
-# official + component build 生成优化后的 libskia.so。
+# official + component build 生成优化后的 libskia.dylib。
 is_official_build = true
 is_component_build = true
 
-# 不启用 Skia 的 trivial ABI 优化，避免 C++ shared library 边界更依赖特定编译器 ABI 细节。
+# 不启用 Skia 的 trivial ABI 优化，避免 C++ dylib 边界更依赖特定编译器 ABI 细节。
 is_trivial_abi = false
 
-cc = "clang"
-cxx = "clang++"
+# 由 generate_skia_package.py 追加 target_cpu。部署版本由 Skia 工具链决定。
+target_os = "mac"
 
 # 不构建 viewer、bench、tests 等工具；预编译包只发布 runtime library。
 skia_enable_tools = false
 
 # FluidUI 当前使用 Skia Ganesh GPU API。
-# Linux 不能假设 Vulkan 一定可用，所以同时编入 Vulkan 和 EGL/GL：
-# - Vulkan 是现代首选路径；
-# - EGL/GL 作为没有 Vulkan、驱动不完整、VM/容器等场景下的 GPU fallback；
-# - 禁用 X11/GLX，避免把包绑定到 X11，Wayland 和 headless/embedded 场景更干净。
+# macOS GPU 后端选择 Metal；OpenGL 在 macOS 上已长期 deprecated，因此显式关闭 GL。
 skia_enable_ganesh = true
-skia_use_gl = true
-skia_use_egl = true
-skia_use_vulkan = true
+skia_use_gl = false
+skia_use_metal = true
+skia_use_vulkan = false
 skia_use_dawn = false
 skia_use_webgl = false
-skia_use_x11 = false
 
 # FluidUI 自己管理文本 shaping / Unicode 依赖，Skia 包只承担绘制和图片解码。
 skia_use_harfbuzz = false
 skia_use_icu = false
 
-# Linux 字体发现依赖 fontconfig + freetype；使用 bundled freetype，避免系统 freetype 版本漂移。
-skia_use_fontconfig = true
-skia_use_freetype = true
-skia_use_system_freetype2 = false
+# macOS 使用 CoreText 字体栈，不需要 fontconfig/freetype。
+skia_use_fontconfig = false
+skia_use_freetype = false
 
 # FluidUI 公共位图基线保证 PNG 编解码和 JPEG 解码。JPEG 编码和 WebP
 # 尚未进入公共契约，不让预编译包为未使用能力付出代码体积。
@@ -48,7 +43,6 @@ skia_use_libwebp_encode = false
 # 使用 Skia third_party 里的 codec/zlib，避免下游应用复现一组系统依赖版本。
 skia_use_system_libpng = false
 skia_use_system_libjpeg_turbo = false
-skia_use_system_libwebp = false
 skia_use_system_zlib = false
 
 # 关闭当前 UI runtime 不需要的文档/动画/SVG/RAW 等模块。
@@ -61,3 +55,11 @@ skia_use_piex = false
 
 # 不引入 Chromium PartitionAlloc，降低预编译包和宿主进程的 allocator 耦合。
 skia_use_partition_alloc = false
+
+# 让 macOS component build 使用 libc++，并保留当前包所需的兼容性宏。
+extra_cflags = [
+  "-DSK_AVOID_SLOW_RASTER_PIPELINE_BLURS",
+  "-DHAVE_ARC4RANDOM_BUF",
+  "-stdlib=libc++",
+]
+extra_ldflags = [ "-stdlib=libc++" ]

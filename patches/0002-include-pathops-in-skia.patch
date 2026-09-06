@@ -1,0 +1,9 @@
+diff --git a/BUILD.gn b/BUILD.gn
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -1980,4 +1980,5 @@ skia_component("skia") {
+   public_deps = [
+     ":core",
++    ":pathops",
+     ":fontmgr_FontConfigInterface",
+     ":fontmgr_android",

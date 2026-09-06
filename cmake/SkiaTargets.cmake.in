@@ -1,8 +1,17 @@
+get_filename_component(_skia_package_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." REALPATH)
+
 if(TARGET Skia::Skia)
+    get_target_property(_skia_existing_prefix Skia::Skia _SKIA_PREBUILT_PREFIX)
+    if(NOT "${_skia_existing_prefix}" STREQUAL "${_skia_package_prefix}")
+        message(FATAL_ERROR
+            "Skia::Skia already exists and does not belong to this prebuilt package. "
+            "Existing: ${_skia_existing_prefix}; requested: ${_skia_package_prefix}. "
+            "Select a single Skia package before importing it.")
+    endif()
+    unset(_skia_existing_prefix)
+    unset(_skia_package_prefix)
     return()
 endif()
-
-get_filename_component(_skia_package_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
 
 set(_skia_imported_locations
 @SKIA_IMPORTED_LOCATION_CHECKS@
@@ -17,8 +26,10 @@ endforeach()
 add_library(Skia::Skia SHARED IMPORTED)
 
 set_target_properties(Skia::Skia PROPERTIES
+    _SKIA_PREBUILT_PREFIX "${_skia_package_prefix}"
     INTERFACE_INCLUDE_DIRECTORIES "${_skia_package_prefix}"
     INTERFACE_COMPILE_DEFINITIONS "@SKIA_INTERFACE_COMPILE_DEFINITIONS@"
+    INTERFACE_COMPILE_FEATURES cxx_std_20
 @SKIA_IMPORTED_LOCATION_PROPERTIES@
 )
 

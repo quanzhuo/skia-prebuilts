@@ -1,4 +1,5 @@
-# Set build arguments here. See `gn help buildargs`.
+# Build arguments go here.
+# See "gn args <out_dir> --list" for available build arguments.
 
 # 预编译包面向下游 CMake 项目，而不是 Skia 自身开发。
 # official + component build 生成优化后的 libskia.dylib。
@@ -8,43 +9,51 @@ is_component_build = true
 # 不启用 Skia 的 trivial ABI 优化，避免 C++ dylib 边界更依赖特定编译器 ABI 细节。
 is_trivial_abi = false
 
-# 由 generate_skia_package.py 追加 target_cpu 和 min_macos_version。
+# 由 generate_skia_package.py 追加 target_cpu。m152 的 Skia 工具链将
+# x64/arm64 都显式构建为 macOS 11 target。
 target_os = "mac"
 
 # 不构建 viewer、bench、tests 等工具；预编译包只发布 runtime library。
 skia_enable_tools = false
+skia_enable_precompile = false
 
-# FluidUI 当前使用 Skia Ganesh GPU API。
-# macOS GPU 后端选择 Metal；OpenGL 在 macOS 上已长期 deprecated，因此显式关闭 GL。
-skia_enable_ganesh = true
+# CPU-only 包不编入 Ganesh/Graphite 或任何平台 GPU runtime。
+skia_enable_discrete_gpu = false
+skia_enable_ganesh = false
+skia_enable_graphite = false
 skia_use_gl = false
-skia_use_metal = true
+skia_use_metal = false
 skia_use_vulkan = false
 skia_use_dawn = false
 skia_use_webgl = false
+skia_use_webgpu = false
 
-# FluidUI 自己管理文本 shaping / Unicode 依赖，Skia 包只承担绘制和图片解码。
+# FluidUI 自己管理文本 shaping / Unicode 依赖，Skia 包承担 CPU raster
+# 和公共位图 codec。
+skia_use_client_icu = false
+skia_use_bidi = false
 skia_use_harfbuzz = false
 skia_use_icu = false
+skia_use_icu4x = false
+skia_use_libgrapheme = false
+skia_use_perfetto = false
 
 # macOS 使用 CoreText 字体栈，不需要 fontconfig/freetype。
 skia_use_fontconfig = false
 skia_use_freetype = false
 
 # FluidUI 公共位图基线保证 PNG 编解码和 JPEG 解码。JPEG 编码和 WebP
-# 尚未进入公共契约，不让预编译包为未使用能力付出代码体积。
+# 尚未进入公共契约。codec 使用 Skia bundled 源码，不向下游传播系统库版本。
 skia_use_libpng_decode = true
 skia_use_libpng_encode = true
 skia_use_libjpeg_turbo_decode = true
 skia_use_libjpeg_turbo_encode = false
 skia_use_libwebp_decode = false
 skia_use_libwebp_encode = false
-
-# 使用 Skia third_party 里的 codec/zlib，避免下游应用复现一组系统依赖版本。
-skia_use_system_expat = false
+skia_use_wuffs = false
+skia_use_zlib = true
 skia_use_system_libpng = false
 skia_use_system_libjpeg_turbo = false
-skia_use_system_libwebp = false
 skia_use_system_zlib = false
 
 # 关闭当前 UI runtime 不需要的文档/动画/SVG/RAW 等模块。
@@ -55,13 +64,10 @@ skia_use_expat = false
 skia_use_dng_sdk = false
 skia_use_piex = false
 
-# 不引入 Chromium PartitionAlloc，降低预编译包和宿主进程的 allocator 耦合。
+# m152 默认会在 clang 构建中启用 PartitionAlloc；CPU-only 包不需要它。
 skia_use_partition_alloc = false
 
-# 让 macOS component build 使用 libc++，并保留当前包所需的兼容性宏。
-extra_cflags = [
-  "-DSK_AVOID_SLOW_RASTER_PIPELINE_BLURS",
-  "-DHAVE_ARC4RANDOM_BUF",
-  "-stdlib=libc++",
-]
+# macOS component build 使用 libc++。不为 CPU raster 添加平台特有的
+# 算法宏，保持三平台渲染路径一致。
+extra_cflags = [ "-stdlib=libc++" ]
 extra_ldflags = [ "-stdlib=libc++" ]

@@ -8,46 +8,52 @@ is_component_build = true
 # 不启用 Skia 的 trivial ABI 优化，避免 C++ DLL 边界更依赖特定编译器 ABI 细节。
 is_trivial_abi = false
 
-clang_win = "C:\Program Files\LLVM"
+# GN 字符串使用正斜杠，避免 Windows 反斜杠被当作转义序列。
+clang_win = "C:/Program Files/LLVM"
 
 # 不构建 viewer、bench、tests 等工具；component build 下这些工具也依赖很多非导出符号。
 skia_enable_tools = false
+skia_enable_precompile = false
 
-# FluidUI 当前使用 Skia Ganesh GPU API。
-# Windows 桌面 UI 通过 ANGLE 把 OpenGL ES 映射到 Direct3D 11。D3D11 的驱动覆盖、
-# DirectComposition 互操作和小型 UI 工作负载的资源开销都比直接管理 D3D12 更合适。
-# ANGLE 作为包的一部分发布，避免宿主应用依赖系统 OpenGL 或自行匹配 ANGLE 版本。
-skia_enable_ganesh = true
-skia_use_gl = true
-skia_use_angle = true
-skia_gl_standard = "gles"
+# CPU-only 包不编入 Ganesh/Graphite 或任何平台 GPU runtime。
+skia_enable_discrete_gpu = false
+skia_enable_ganesh = false
+skia_enable_graphite = false
+skia_use_gl = false
+skia_use_angle = false
 skia_use_egl = false
 skia_use_vulkan = false
 skia_use_direct3d = false
 skia_use_dawn = false
 skia_use_webgl = false
+skia_use_webgpu = false
 
-# FluidUI 自己管理文本 shaping / Unicode 依赖，Skia 包只承担绘制和图片解码。
+# FluidUI 自己管理文本 shaping / Unicode 依赖，Skia 包承担 CPU raster
+# 和公共位图 codec。
+skia_use_client_icu = false
+skia_use_bidi = false
 skia_use_harfbuzz = false
 skia_use_icu = false
+skia_use_icu4x = false
+skia_use_libgrapheme = false
+skia_use_perfetto = false
 
-# 关闭旧 GDI font manager；Windows 字体路径使用 Skia 默认 DirectWrite 支持。
+# Windows 字体路径使用 Skia 默认 DirectWrite 支持，不启用旧 GDI/freetype。
 skia_enable_fontmgr_win_gdi = false
 skia_use_freetype = false
 
 # FluidUI 公共位图基线保证 PNG 编解码和 JPEG 解码。JPEG 编码和 WebP
-# 尚未进入公共契约，不让预编译包为未使用能力付出代码体积。
+# 尚未进入公共契约。codec 使用 Skia bundled 源码，不向下游传播系统库版本。
 skia_use_libpng_decode = true
 skia_use_libpng_encode = true
 skia_use_libjpeg_turbo_decode = true
 skia_use_libjpeg_turbo_encode = false
 skia_use_libwebp_decode = false
 skia_use_libwebp_encode = false
-
-# 使用 Skia third_party 里的 codec/zlib，避免下游应用复现一组系统依赖版本。
+skia_use_wuffs = false
+skia_use_zlib = true
 skia_use_system_libpng = false
 skia_use_system_libjpeg_turbo = false
-skia_use_system_libwebp = false
 skia_use_system_zlib = false
 
 # 关闭当前 UI runtime 不需要的文档/动画/SVG/RAW/XPS 等模块。
@@ -59,5 +65,5 @@ skia_use_dng_sdk = false
 skia_use_piex = false
 skia_use_xps = false
 
-# 不引入 Chromium PartitionAlloc，降低预编译包和宿主进程的 allocator 耦合。
+# m152 默认会在 clang 构建中启用 PartitionAlloc；CPU-only 包不需要它。
 skia_use_partition_alloc = false

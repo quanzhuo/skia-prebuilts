@@ -1,0 +1,69 @@
+# Build arguments go here.
+# See "gn args <out_dir> --list" for available build arguments.
+
+# 预编译包面向下游 CMake 项目，而不是 Skia 自身开发。
+# official + component build 生成优化后的 libskia.so。
+is_official_build = true
+is_component_build = true
+
+# 不启用 Skia 的 trivial ABI 优化，避免 C++ shared library 边界更依赖特定编译器 ABI 细节。
+is_trivial_abi = false
+
+cc = "clang"
+cxx = "clang++"
+
+# 不构建 viewer、bench、tests 等工具；预编译包只发布 runtime library。
+skia_enable_tools = false
+skia_enable_precompile = false
+
+# CPU-only 包不编入 Ganesh/Graphite 或任何平台 GPU runtime。
+skia_enable_discrete_gpu = false
+skia_enable_ganesh = false
+skia_enable_graphite = false
+skia_use_gl = false
+skia_use_egl = false
+skia_use_vulkan = false
+skia_use_dawn = false
+skia_use_webgl = false
+skia_use_webgpu = false
+skia_use_x11 = false
+
+# FluidUI 自己管理文本 shaping / Unicode 依赖，Skia 包承担 CPU raster
+# 和公共位图 codec。
+skia_use_client_icu = false
+skia_use_bidi = false
+skia_use_harfbuzz = false
+skia_use_icu = false
+skia_use_icu4x = false
+skia_use_libgrapheme = false
+skia_use_perfetto = false
+
+# Linux 字体发现依赖 fontconfig + freetype；freetype 使用 Skia bundled 版本。
+skia_use_fontconfig = true
+skia_use_freetype = true
+skia_use_system_freetype2 = false
+
+# FluidUI 公共位图基线保证 PNG 编解码和 JPEG 解码。JPEG 编码和 WebP
+# 尚未进入公共契约。codec 使用 Skia bundled 源码，不向下游传播系统库版本。
+skia_use_libpng_decode = true
+skia_use_libpng_encode = true
+skia_use_libjpeg_turbo_decode = true
+skia_use_libjpeg_turbo_encode = false
+skia_use_libwebp_decode = false
+skia_use_libwebp_encode = false
+skia_use_wuffs = false
+skia_use_zlib = true
+skia_use_system_libpng = false
+skia_use_system_libjpeg_turbo = false
+skia_use_system_zlib = false
+
+# 关闭当前 UI runtime 不需要的文档/动画/SVG/RAW 等模块。
+skia_enable_pdf = false
+skia_enable_skottie = false
+skia_enable_svg = false
+skia_use_expat = false
+skia_use_dng_sdk = false
+skia_use_piex = false
+
+# m152 默认会在 clang 构建中启用 PartitionAlloc；CPU-only 包不需要它。
+skia_use_partition_alloc = false
