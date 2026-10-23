@@ -1,0 +1,35 @@
+diff --git a/include/private/SkASAN.h b/include/private/SkASAN.h
+--- a/include/private/SkASAN.h
++++ b/include/private/SkASAN.h
+@@ -10,13 +10,25 @@
+ 
+ #include <cstddef>
+ 
+-#ifdef __SANITIZE_ADDRESS__
+-    #define SK_SANITIZE_ADDRESS 1
++// This package uses the uninstrumented Skia container ABI. Keep the same
++// layout in instrumented consumers without disabling compiler ASan checks.
++#ifdef SK_SANITIZE_ADDRESS
++    #error "Skia Prebuilts: do not define SK_SANITIZE_ADDRESS; the container ABI is uninstrumented."
+ #endif
+-#if !defined(SK_SANITIZE_ADDRESS) && defined(__has_feature)
+-    #if __has_feature(address_sanitizer)
+-        #define SK_SANITIZE_ADDRESS 1
+-    #endif
++#if defined(_MSC_VER) && defined(_ITERATOR_DEBUG_LEVEL) && _ITERATOR_DEBUG_LEVEL != 0
++    #error "Skia Prebuilts requires the MSVC release STL ABI (_ITERATOR_DEBUG_LEVEL=0)."
++#endif
++#if defined(_WIN32) && !defined(_MSC_VER)
++    #error "Skia Prebuilts requires an MSVC ABI compiler on Windows."
++#endif
++#if defined(__linux__) && !defined(__GLIBCXX__)
++    #error "Skia Prebuilts requires libstdc++ on Linux."
++#endif
++#if defined(__APPLE__) && !defined(_LIBCPP_VERSION)
++    #error "Skia Prebuilts requires libc++ on macOS."
++#endif
++#if defined(__GLIBCXX__) && (defined(_GLIBCXX_DEBUG) || !_GLIBCXX_USE_CXX11_ABI)
++    #error "Skia Prebuilts requires the default modern libstdc++ ABI without _GLIBCXX_DEBUG."
+ #endif
+ 
+ // Typically declared in LLVM's asan_interface.h.

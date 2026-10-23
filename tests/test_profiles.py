@@ -12,26 +12,26 @@ import zipfile
 import generate_skia_package as package
 
 
-VERSION = "m152-0873ec164a"
+VERSION = "m152-0873ec164a-r1"
 
 
 class ProfileTests(unittest.TestCase):
     def test_names_are_derived_for_each_platform_and_profile(self):
-        for system, prefix in (("Windows", "win32"), ("Linux", "linux"), ("Darwin", "macos")):
+        for system, prefix in (("Windows", "windows"), ("Linux", "linux"), ("Darwin", "macos")):
             for machine, cpu in (("AMD64", "x64"), ("aarch64", "arm64")):
                 with mock.patch.object(package.platform, "machine", return_value=machine):
-                    self.assertEqual(package.package_name(VERSION, system.lower(), None, "full"),
-                                     f"skia-{VERSION}-{prefix}-{cpu}")
-                    self.assertEqual(package.package_name(VERSION, system.lower(), None, "cpu-only"),
-                                     f"skia-{VERSION}-cpu-only-{prefix}-{cpu}")
+                    self.assertEqual(package.package_name(VERSION, system.lower(), None, "gpu"),
+                                     f"skia-{VERSION}-gpu-{prefix}-{cpu}")
+                    self.assertEqual(package.package_name(VERSION, system.lower(), None, "cpu"),
+                                     f"skia-{VERSION}-cpu-{prefix}-{cpu}")
 
     def test_versions_cannot_inject_paths_or_profile_suffixes(self):
-        for value in ("../m152-0873ec164a", "m152-0873ec164a/cpu", "m152-0873ec164a-cpu-only",
-                      "skia-m152-0873ec164a-win32-x64", "m152-123", "m0-abcdef0", "m152-abcdefg",
-                      "m152-" + "a" * 41, "m152-0873ec164a\n"):
+        for value in ("../m152-0873ec164a-r1", "m152-0873ec164a-r1/cpu", "m152-0873ec164a-r1-cpu-only",
+                      "skia-m152-0873ec164a-r1-windows-x64", "m152-123", "m0-abcdef0", "m152-abcdefg",
+                      "m152-" + "a" * 41, "m152-0873ec164a-r1\n"):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 package.parse_package_version(value)
-        self.assertEqual(package.parse_package_version("m152-ABCDEF0")["commit"], "abcdef0")
+        self.assertEqual(package.parse_package_version(VERSION)["revision"], "1")
 
     def test_native_architecture_is_explicit_and_cross_architecture_is_not_silently_ignored(self):
         with mock.patch.object(package.platform, "machine", return_value="AMD64"):
@@ -45,13 +45,13 @@ class ProfileTests(unittest.TestCase):
             for profile in package.PROFILES:
                 with self.subTest(system=system, profile=profile):
                     contents = Path(package.get_args_gn_file_path(system, profile)).read_text(encoding="utf-8")
-                    expected = "true" if profile == "full" else "false"
+                    expected = "true" if profile == "gpu" else "false"
                     self.assertIn(f"skia_enable_ganesh = {expected}", contents)
                     self.assertIn("skia_use_libpng_encode = true", contents)
                     patches = [Path(p).name for p in package.get_source_patch_paths(system, profile)]
                     self.assertIn("0002-include-pathops-in-skia.patch", patches)
                     self.assertEqual("0001-expose-angle-runtime-target.patch" in patches,
-                                     system == "windows" and profile == "full")
+                                     system == "windows" and profile == "gpu")
                     rendered = package.render_args_gn_contents(package.get_args_gn_file_path(system, profile), system, None)
                     self.assertIn("target_cpu =", rendered)
                     self.assertNotIn("min_macos_version =", rendered)
@@ -60,12 +60,12 @@ class ProfileTests(unittest.TestCase):
         for system, font_macro in (("windows", "SK_FONTMGR_DIRECTWRITE_AVAILABLE"),
                                    ("linux", "SK_FONTMGR_FONTCONFIG_AVAILABLE"),
                                    ("darwin", "SK_ENABLE_API_AVAILABLE")):
-            cpu = package.get_interface_compile_definitions(system, "cpu-only").split(";")
+            cpu = package.get_interface_compile_definitions(system, "cpu").split(";")
             self.assertIn(font_macro, cpu)
             self.assertIn("SK_CODEC_ENCODES_PNG", cpu)
             self.assertFalse(any(value.startswith(("SK_GANESH", "SK_GL", "SK_VULKAN", "SK_METAL", "SK_ASSUME_GL")) for value in cpu))
-            self.assertEqual(package.get_gpu_backends(system, "cpu-only"), "")
-            self.assertNotEqual(package.get_gpu_backends(system, "full"), "")
+            self.assertEqual(package.get_gpu_backends(system, "cpu"), "")
+            self.assertNotEqual(package.get_gpu_backends(system, "gpu"), "")
 
     def test_invalid_profile_is_rejected(self):
         for function, args in ((package.package_name, (VERSION, "windows", None)),
@@ -84,19 +84,31 @@ class PackageTests(unittest.TestCase):
         self.build = self.root / "build"
         self.output = self.root / "dist"
         self.build.mkdir()
+        self.enterContext(mock.patch.object(package.release, "verify_sources", return_value={}))
+        self.enterContext(mock.patch.object(package.release, "toolchain_identity", return_value={}))
         for relative in ("include/core/SkMilestone.h", "include/pathops/SkPathOps.h",
                          "modules/skcms/skcms.h", "modules/skcms/src/skcms_public.h",
                          "third_party/externals/angle2/include/EGL/egl.h"):
             path = self.repo / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("#define SK_MILESTONE 152\n", encoding="utf-8")
+        (self.repo / "LICENSE").write_text("Skia fixture license")
+        (self.repo / "modules/skcms/LICENSE").write_text("SkCMS fixture license")
+        asan = self.repo / "include/private/SkASAN.h"
+        asan.parent.mkdir(parents=True, exist_ok=True)
+        asan.write_text((Path(__file__).parent / "fixtures/SkASAN.h").read_text(), encoding="utf-8")
+        for system in ("windows", "linux", "darwin"):
+            for dep in package.release.required_dependencies(system):
+                path = self.repo / dep / "LICENSE"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("Dependency fixture license")
         self.enterContext(contextlib.redirect_stdout(io.StringIO()))
 
     def test_version_matches_actual_commit_and_milestone(self):
         with mock.patch.object(package.subprocess, "run", return_value=subprocess.CompletedProcess(
                 [], 0, stdout="0873ec164a" + "0" * 30 + "\n")):
             package.validate_source_version(str(self.repo), VERSION)
-            for version in ("m151-0873ec164a", "m152-1234567"):
+            for version in ("m151-0873ec164a-r1", "m152-1234567890-r2"):
                 with self.assertRaisesRegex(ValueError, "不一致"):
                     package.validate_source_version(str(self.repo), version)
 
@@ -106,18 +118,18 @@ class PackageTests(unittest.TestCase):
         with mock.patch.object(package, "get_args_gn_file_path", return_value=str(config)), \
              mock.patch.object(package, "get_source_patch_paths", return_value=[]), \
              mock.patch.object(package.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout="abc1234\n")):
-            full = package.source_build_fingerprint(str(self.repo), "linux", "full")
-            self.assertNotEqual(full, package.source_build_fingerprint(str(self.repo), "linux", "cpu-only"))
+            full = package.source_build_fingerprint(str(self.repo), "linux", "gpu")
+            self.assertNotEqual(full, package.source_build_fingerprint(str(self.repo), "linux", "cpu"))
             config.write_text("a = false\n", encoding="utf-8")
-            self.assertNotEqual(full, package.source_build_fingerprint(str(self.repo), "linux", "full"))
+            self.assertNotEqual(full, package.source_build_fingerprint(str(self.repo), "linux", "gpu"))
 
     def test_cached_args_require_both_matching_profile_and_architecture(self):
         with mock.patch.object(package.platform, "machine", return_value="AMD64"):
-            config = package.get_args_gn_file_path("darwin", "cpu-only")
+            config = package.get_args_gn_file_path("darwin", "cpu")
             package.prepare_args_gn_file(config, str(self.build / "args.gn"), "darwin", "arm64")
-            self.assertTrue(package.build_args_gn_is_current(str(self.build), "darwin", "arm64", "cpu-only"))
-            self.assertFalse(package.build_args_gn_is_current(str(self.build), "darwin", "arm64", "full"))
-            self.assertFalse(package.build_args_gn_is_current(str(self.build), "darwin", "x64", "cpu-only"))
+            self.assertTrue(package.build_args_gn_is_current(str(self.build), "darwin", "arm64", "cpu"))
+            self.assertFalse(package.build_args_gn_is_current(str(self.build), "darwin", "arm64", "gpu"))
+            self.assertFalse(package.build_args_gn_is_current(str(self.build), "darwin", "x64", "cpu"))
 
     def test_copy_directory_never_deletes_an_existing_destination(self):
         (self.build / "keep.txt").write_text("keep", encoding="utf-8")
@@ -128,18 +140,18 @@ class PackageTests(unittest.TestCase):
     @contextlib.contextmanager
     def cached_package(self, system):
         # Deliberately leave full outputs present even when packaging CPU-only.
-        for source, _ in package.binary_layout(system, "full").values():
+        for source, _ in package.binary_layout(system, "gpu").values():
             (self.build / source).write_bytes(b"fixture binary: " + source.encode())
         with mock.patch.object(package.platform, "system", return_value=system.capitalize()), \
              mock.patch.object(package.platform, "machine", return_value="AMD64"), \
-             mock.patch.object(package, "validate_source_version"), \
+             mock.patch.object(package, "validate_source_version", return_value="0873ec164a" + "0" * 30), \
              mock.patch.object(package, "source_build_fingerprint", return_value="fingerprint"), \
              mock.patch.object(package, "build_args_gn_is_current", return_value=True), \
              mock.patch.object(package, "build_source_is_current", return_value=True), \
              mock.patch.object(package, "build_skia") as build:
             yield build
 
-    def create(self, profile="full", force=False):
+    def create(self, profile="gpu", force=False):
         return package.create_package(str(self.repo), str(self.build), VERSION,
                                       force_build=force, profile=profile, output_dir=str(self.output))
 
@@ -166,7 +178,7 @@ class PackageTests(unittest.TestCase):
                     self.assertIn("set(Skia_HAS_PATHOPS TRUE)", config)
                     self.assertIn("INTERFACE_COMPILE_FEATURES cxx_std_20", contents)
                     self.assertNotIn("@SKIA_", contents + config)
-                    angle = system == "windows" and profile == "full"
+                    angle = system == "windows" and profile == "gpu"
                     self.assertEqual("Skia::Angle" in contents, angle)
                     self.assertEqual(any("libGLESv2" in entry for entry in names), angle)
                     self.assertEqual(any("/angle/" in entry for entry in names), angle)
@@ -175,14 +187,14 @@ class PackageTests(unittest.TestCase):
 
     def test_force_build_propagates_profile(self):
         with self.cached_package("windows") as build:
-            self.create("cpu-only", force=True)
-            self.assertEqual(build.call_args.kwargs["profile"], "cpu-only")
+            self.create("cpu", force=True)
+            self.assertEqual(build.call_args.kwargs["profile"], "cpu")
 
     def test_incomplete_cpu_binary_is_not_packaged(self):
         with self.cached_package("windows") as build:
             (self.build / "skia.dll").unlink()
             with self.assertRaises(FileNotFoundError):
-                self.create("cpu-only")
+                self.create("cpu")
             build.assert_called_once()
             self.assertFalse(self.output.exists())
 
@@ -194,29 +206,29 @@ class PackageTests(unittest.TestCase):
                 with self.assertRaises(OSError):
                     self.create()
             self.assertEqual(archive.read_bytes(), previous)
-            self.assertEqual(list(self.output.iterdir()), [archive])
+            self.assertEqual(set(self.output.iterdir()), {archive, Path(str(archive) + ".sha256")})
 
     def test_default_batch_separates_platform_and_profile_build_directories(self):
         with mock.patch.object(package.platform, "system", return_value="Windows"), \
              mock.patch.object(package.platform, "machine", return_value="AMD64"), \
              mock.patch.object(package, "checkout_build_lock", return_value=contextlib.nullcontext()), \
-             mock.patch.object(package, "validate_source_version"), \
+             mock.patch.object(package, "validate_source_version", return_value="0873ec164a" + "0" * 30), \
              mock.patch.object(package, "create_package", side_effect=["full.zip", "cpu.zip"]) as create:
             results = package.create_packages(str(self.repo), VERSION, jobs=3)
             self.assertEqual(results, ["full.zip", "cpu.zip"])
             calls = create.call_args_list
-            self.assertEqual([call.kwargs["profile"] for call in calls], ["full", "cpu-only"])
+            self.assertEqual([call.kwargs["profile"] for call in calls], ["gpu", "cpu"])
             for call, profile in zip(calls, package.PROFILES):
-                self.assertEqual(Path(call.args[1]), self.repo / "out" / "prebuilts" / "win32-x64" / profile)
+                self.assertEqual(Path(call.args[1]).parent, self.repo / "out" / "prebuilts" / "windows-x64" / profile)
                 self.assertEqual(call.kwargs["jobs"], 3)
 
     def test_single_profile_and_failure_stop_batch(self):
         with mock.patch.object(package, "checkout_build_lock", return_value=contextlib.nullcontext()), \
-             mock.patch.object(package, "validate_source_version"), \
+             mock.patch.object(package, "validate_source_version", return_value="0873ec164a" + "0" * 30), \
              mock.patch.object(package, "create_package", return_value="cpu.zip") as create:
-            package.create_packages(str(self.repo), VERSION, profile="cpu-only")
+            package.create_packages(str(self.repo), VERSION, profile="cpu")
             create.assert_called_once()
-            self.assertEqual(create.call_args.kwargs["profile"], "cpu-only")
+            self.assertEqual(create.call_args.kwargs["profile"], "cpu")
             create.reset_mock()
             create.side_effect = RuntimeError("build failed")
             with self.assertRaisesRegex(RuntimeError, "build failed"):
@@ -231,7 +243,7 @@ class PackageTests(unittest.TestCase):
              mock.patch.object(package.subprocess, "run") as run:
             for profile in package.PROFILES:
                 package.build_skia(str(self.repo), str(self.build), jobs=5, profile=profile)
-                self.assertEqual("skia_angle_runtime" in run.call_args.args[0], profile == "full")
+                self.assertEqual("skia_angle_runtime" in run.call_args.args[0], profile == "gpu")
                 self.assertIn("--fail-on-unused-args", run.call_args_list[-2].args[0])
 
     def test_checkout_lock_blocks_another_process_and_releases_after_exception(self):

@@ -8,7 +8,7 @@ index 0000000000..1111111111 100644
  }
 +
 +# Packaging-only target. Skia's component library intentionally does not link
-+# ANGLE, but the FluidUI binary package ships the matching ANGLE runtime next
++# ANGLE, but the prebuilt package ships the matching ANGLE runtime next
 +# to Skia. Keeping this dependency in a separate group preserves that boundary.
 +if (skia_use_angle) {
 +  group("skia_angle_runtime") {

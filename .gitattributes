@@ -1,0 +1,5 @@
+* text=auto eol=lf
+*.zip -text
+*.gz -text
+# Empty unified-diff context lines contain a single space.
+*.patch whitespace=-blank-at-eol

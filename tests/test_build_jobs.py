@@ -54,14 +54,14 @@ class BuildJobsTests(unittest.TestCase):
 
     def test_cli_forwards_explicit_jobs_and_preserves_auto_default(self):
         for arguments, expected in (([], None), (["--jobs", "20"], 20), (["-j", "3"], 3)):
-            with mock.patch("sys.argv", ["generate_skia_package.py", ".", "m152-abc1234", *arguments]), \
+            with mock.patch("sys.argv", ["generate_skia_package.py", ".", *arguments]), \
                  mock.patch.object(package, "create_packages", return_value=["package.zip"]) as create, \
                  contextlib.redirect_stdout(io.StringIO()):
                 package.main()
                 self.assertEqual(create.call_args.kwargs["jobs"], expected)
 
     def test_invalid_cli_jobs_fail_before_packaging(self):
-        with mock.patch("sys.argv", ["generate_skia_package.py", ".", "m152-abc1234", "--jobs", "0"]), \
+        with mock.patch("sys.argv", ["generate_skia_package.py", ".", "--jobs", "0"]), \
              mock.patch.object(package, "create_packages") as create, \
              contextlib.redirect_stderr(io.StringIO()), \
              self.assertRaises(SystemExit) as error:

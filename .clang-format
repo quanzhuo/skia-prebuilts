@@ -1,0 +1,77 @@
+# Repository formatter version: clang-format 21.1.8.
+BasedOnStyle: LLVM
+
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+AccessModifierOffset: -4
+ContinuationIndentWidth: 4
+AlignAfterOpenBracket: DontAlign
+AlignOperands: DontAlign
+
+ColumnLimit: 120
+
+PointerAlignment: Left
+ReferenceAlignment: Pointer
+
+SortIncludes:
+  Enabled: false
+SortUsingDeclarations: Never
+FixNamespaceComments: false
+
+# Keep short class-body accessors compact; expand out-of-class implementations.
+AllowShortFunctionsOnASingleLine: InlineOnly
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortLambdasOnASingleLine: Inline
+BreakTemplateDeclarations: Yes
+
+# Separate adjacent definitions even when the source has no blank line.
+SeparateDefinitionBlocks: Always
+MaxEmptyLinesToKeep: 1
+
+# Keep fitting parameter lists together; use one item per line when wrapping.
+BinPackArguments: false
+BinPackParameters: OnePerLine
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+
+ObjCBlockIndentWidth: 4
+
+AlignTrailingComments:
+  Kind: Never
+
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterCaseLabel: false
+  AfterClass: false
+  AfterControlStatement: Never
+  AfterEnum: false
+  AfterFunction: true
+  AfterNamespace: false
+  AfterStruct: false
+  AfterUnion: false
+  AfterExternBlock: false
+  BeforeCatch: false
+  BeforeElse: false
+  BeforeLambdaBody: false
+  BeforeWhile: false
+  IndentBraces: false
+  SplitEmptyFunction: true
+  SplitEmptyRecord: false
+  SplitEmptyNamespace: false
+
+PackConstructorInitializers: Never
+BreakConstructorInitializers: BeforeComma
+
+AlignConsecutiveMacros:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: false
+  AlignCompound: false
+  PadOperators: true
+
+AlignEscapedNewlines: Left
+
+LineEnding: DeriveLF
+InsertNewlineAtEOF: true

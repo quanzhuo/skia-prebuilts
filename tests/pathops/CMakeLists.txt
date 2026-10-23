@@ -8,11 +8,11 @@ if(DEFINED SKIA_EXPECT_PROFILE)
         message(FATAL_ERROR "The package profile or PathOps metadata is incorrect")
     endif()
     get_target_property(_skia_definitions Skia::Skia INTERFACE_COMPILE_DEFINITIONS)
-    if(SKIA_EXPECT_PROFILE STREQUAL "cpu-only")
+    if(SKIA_EXPECT_PROFILE STREQUAL "cpu")
         if(Skia_GPU_BACKENDS OR TARGET Skia::Angle OR "SK_GANESH" IN_LIST _skia_definitions)
             message(FATAL_ERROR "CPU-only package exposes GPU capabilities")
         endif()
-    elseif(SKIA_EXPECT_PROFILE STREQUAL "full")
+    elseif(SKIA_EXPECT_PROFILE STREQUAL "gpu")
         if(NOT Skia_GPU_BACKENDS OR NOT "SK_GANESH" IN_LIST _skia_definitions)
             message(FATAL_ERROR "Full package does not expose its GPU capabilities")
         endif()
@@ -26,11 +26,31 @@ endif()
 add_executable(skia_pathops_smoke main.cpp)
 # The imported target must propagate its required C++ language version.
 target_link_libraries(skia_pathops_smoke PRIVATE Skia::Skia)
+if(TARGET Skia::Angle)
+    target_link_libraries(skia_pathops_smoke PRIVATE Skia::Angle)
+    target_compile_definitions(skia_pathops_smoke PRIVATE SKIA_TEST_ANGLE=1)
+endif()
+
+option(SKIA_TEST_ASAN "Run the consumer with compiler AddressSanitizer" OFF)
+option(SKIA_TEST_ASAN_LAYOUT "Exercise Skia's sanitizer detection without a sanitizer runtime" OFF)
+if(SKIA_TEST_ASAN_LAYOUT)
+    target_compile_definitions(skia_pathops_smoke PRIVATE __SANITIZE_ADDRESS__=1)
+endif()
+if(SKIA_TEST_ASAN)
+    if(MSVC)
+        target_compile_options(skia_pathops_smoke PRIVATE /fsanitize=address /Zi)
+        target_link_options(skia_pathops_smoke PRIVATE /INCREMENTAL:NO)
+    else()
+        target_compile_options(skia_pathops_smoke PRIVATE -fsanitize=address -fno-omit-frame-pointer)
+        target_link_options(skia_pathops_smoke PRIVATE -fsanitize=address)
+    endif()
+endif()
 
 if(WIN32)
     add_custom_command(TARGET skia_pathops_smoke POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "$<TARGET_FILE:Skia::Skia>" "$<TARGET_FILE_DIR:skia_pathops_smoke>"
+            $<TARGET_RUNTIME_DLLS:skia_pathops_smoke> "$<TARGET_FILE_DIR:skia_pathops_smoke>"
+        COMMAND_EXPAND_LISTS
         VERBATIM)
 endif()
 

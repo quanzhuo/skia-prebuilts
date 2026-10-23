@@ -124,6 +124,12 @@ class SourcePatchTests(unittest.TestCase):
                 package.build_skia(str(self.root), str(self.build))
         self.assertEqual(self.stamp.read_text(), "")
 
+    def test_dirty_source_or_changed_toolchain_cannot_certify_build(self):
+        with self.mock_build(), self.assertRaisesRegex(RuntimeError, "input changed"):
+            package.build_skia(str(self.root), str(self.build),
+                               source_validator=mock.Mock(side_effect=RuntimeError("input changed")))
+        self.assertEqual(self.stamp.read_text(), "")
+
     def test_package_rebuilds_uncertified_binary_even_when_args_match(self):
         # Stop just before packaging: these are orchestration tests, not fake binaries to ship.
         for recorded in (None, "stale", "fingerprint"):
@@ -137,10 +143,10 @@ class SourcePatchTests(unittest.TestCase):
                  mock.patch.object(package, "build_skia") as build, \
                  mock.patch.object(package.tempfile, "TemporaryDirectory", side_effect=RuntimeError("stop packaging")):
                 with self.assertRaisesRegex(RuntimeError, "stop packaging"):
-                    package.create_package(str(self.root), str(self.build), "m152-abc1234", jobs=9, output_dir=str(self.root / "dist"))
+                    package.create_package(str(self.root), str(self.build), "m152-abcdef0123-r1", jobs=9, output_dir=str(self.root / "dist"))
                 self.assertEqual(build.call_count, 0 if recorded == "fingerprint" else 1)
                 if recorded != "fingerprint":
-                    build.assert_called_once_with(str(self.root), str(self.build), None, jobs=9, profile="full")
+                    build.assert_called_once_with(str(self.root), str(self.build), None, jobs=9, profile="gpu", source_validator=None)
 
 
 class PatchLifecycleTests(unittest.TestCase):
