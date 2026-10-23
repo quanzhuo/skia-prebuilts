@@ -11,6 +11,11 @@ on:
         type: boolean
         required: true
         default: false
+      artifacts_run_id:
+        description: Reuse a completed verified build run; leave empty to compile all platforms
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -21,6 +26,7 @@ concurrency:
 
 jobs:
   build:
+    if: github.event_name != 'workflow_dispatch' || inputs.artifacts_run_id == ''
     name: ${{ matrix.platform }}
     timeout-minutes: 120
     runs-on: ${{ matrix.runner }}
@@ -131,11 +137,12 @@ jobs:
 
   release:
     needs: build
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.publish)
+    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.publish) && (needs.build.result == 'success' || (inputs.artifacts_run_id != '' && needs.build.result == 'skipped'))
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     permissions:
       contents: write
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -148,9 +155,17 @@ jobs:
           pattern: prebuilt-*
           path: release-assets
           merge-multiple: true
+          run-id: ${{ inputs.artifacts_run_id || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Publish the complete verified release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_REPOSITORY: ${{ github.repository }}
           RELEASE_COMMIT: ${{ github.sha }}
-        run: python tools/publish_release.py release-assets --publish --repository "$RELEASE_REPOSITORY" --commit "$RELEASE_COMMIT"
+          ARTIFACTS_RUN_ID: ${{ inputs.artifacts_run_id }}
+        run: |
+          if [[ -n "$ARTIFACTS_RUN_ID" ]]; then
+            python tools/publish_release.py release-assets --publish --repository "$RELEASE_REPOSITORY" --artifacts-run-id "$ARTIFACTS_RUN_ID"
+          else
+            python tools/publish_release.py release-assets --publish --repository "$RELEASE_REPOSITORY" --commit "$RELEASE_COMMIT"
+          fi

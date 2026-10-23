@@ -20,6 +20,7 @@ PLATFORMS = ("windows-x64", "windows-arm64", "linux-x64", "linux-arm64", "macos-
 def prepare(dist):
     dist = Path(dist)
     info = release.load_release()
+    expected_recipe = release.recipe_digest()
     records = []
     recipe = None
     assets = []
@@ -57,6 +58,8 @@ def prepare(dist):
                 recipe = manifest["recipe_sha256"]
             elif recipe != manifest["recipe_sha256"]:
                 raise ValueError("Packages were built from different packaging recipes")
+            if manifest["recipe_sha256"] != expected_recipe:
+                raise ValueError("Packages do not match the current build recipe")
             records.append(dict(archive=archive.name, sha256=digest, verification=item, build=manifest))
             assets.append(archive)
     expected = {asset.name for asset in assets}
@@ -81,22 +84,55 @@ def api(repository, endpoint):
     return json.loads(result.stdout)
 
 
+def release_history(repository):
+    result = subprocess.check_output(["gh", "api", "--paginate", "--slurp",
+                                      f"repos/{repository}/releases?per_page=100"], text=True)
+    return [item for page in json.loads(result) for item in page]
+
+
+def release_by_tag(repository, tag):
+    result = api(repository, f"releases/tags/{tag}")
+    if result is not None:
+        return result
+    # The by-tag REST endpoint does not return unpublished drafts reliably.
+    # Authenticated release listing includes them; subsequent reads use the ID.
+    return next((item for item in release_history(repository) if item["tag_name"] == tag), None)
+
+
+def verified_build_commit(repository, run_id):
+    if not re.fullmatch(r"[1-9][0-9]*", run_id):
+        raise ValueError("Artifact run ID must be a positive integer")
+    run = api(repository, f"actions/runs/{run_id}")
+    if (run is None or run.get("status") != "completed" or run.get("head_branch") != "main"
+            or run.get("path") != ".github/workflows/release.yml"
+            or run.get("head_repository", {}).get("full_name") != repository
+            or run.get("event") not in {"push", "workflow_dispatch"}
+            or not re.fullmatch(r"[0-9a-f]{40}", run.get("head_sha", ""))):
+        raise RuntimeError("Artifacts must come from this repository's completed main-branch release workflow")
+    result = subprocess.check_output(["gh", "api", "--paginate", "--slurp",
+                                      f"repos/{repository}/actions/runs/{run_id}/jobs?filter=latest&per_page=100"], text=True)
+    jobs = [job for page in json.loads(result) for job in page["jobs"]]
+    for platform in PLATFORMS:
+        matches = [job for job in jobs if job["name"] == platform]
+        if len(matches) != 1 or matches[0].get("conclusion") != "success":
+            raise RuntimeError(f"Native build/verification did not succeed: {platform}")
+    return run["head_sha"]
+
+
 def publish(dist, repository, commit):
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository) or not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise ValueError("An explicit owner/repository and full packaging commit are required")
     info, assets = prepare(dist)
-    existing = api(repository, f"releases/tags/{info.tag}")
+    existing = release_by_tag(repository, info.tag)
     if existing is not None and not existing["draft"]:
         raise RuntimeError("Release is already published; increment revision instead of replacing it")
     if existing is not None and existing.get("target_commitish") != commit:
         raise RuntimeError("Existing draft belongs to a different packaging commit")
     # Revisions remain unique even when the upstream hash changes.
-    history = subprocess.check_output(["gh", "api", "--paginate", "--slurp", f"repos/{repository}/releases?per_page=100"], text=True)
-    for page in json.loads(history):
-        for previous in page:
-            match = re.fullmatch(rf"m{info.milestone}-[0-9a-f]{{10}}-r([1-9][0-9]*)", previous["tag_name"])
-            if match and previous["tag_name"] != info.tag and int(match.group(1)) >= info.revision:
-                raise RuntimeError("Release revision must increase monotonically within its milestone")
+    for previous in release_history(repository):
+        match = re.fullmatch(rf"m{info.milestone}-[0-9a-f]{{10}}-r([1-9][0-9]*)", previous["tag_name"])
+        if match and previous["tag_name"] != info.tag and int(match.group(1)) >= info.revision:
+            raise RuntimeError("Release revision must increase monotonically within its milestone")
     ref = api(repository, f"git/ref/tags/{info.tag}")
     if ref is not None:
         target = ref["object"]
@@ -114,10 +150,15 @@ def publish(dist, repository, commit):
         "GPU linkage tests use a Ganesh mock context; hardware GPU behavior is not certified by hosted CI.\n",
         encoding="utf-8", newline="\n")
     if existing is None:
-        subprocess.run(["gh", "release", "create", info.tag, "--repo", repository, "--target", commit,
-                        "--draft", "--title", info.tag, "--notes-file", str(notes)], check=True)
+        payload = dict(tag_name=info.tag, target_commitish=commit, draft=True, prerelease=False,
+                       name=info.tag, body=notes.read_text(encoding="utf-8"))
+        created = subprocess.run(["gh", "api", "--method", "POST", f"repos/{repository}/releases", "--input", "-"],
+                                 input=json.dumps(payload), capture_output=True, text=True, check=True)
+        existing = json.loads(created.stdout)
+        if not existing.get("id") or not existing.get("draft"):
+            raise RuntimeError("Could not resolve the newly created draft release")
     subprocess.run(["gh", "release", "upload", info.tag, "--repo", repository, "--clobber", *map(str, assets)], check=True)
-    uploaded = api(repository, f"releases/tags/{info.tag}")
+    uploaded = api(repository, f"releases/{existing['id']}")
     if uploaded is None or {asset["name"] for asset in uploaded["assets"]} != {path.name for path in assets}:
         raise RuntimeError("Draft does not contain exactly the complete approved asset set")
     subprocess.run(["gh", "release", "edit", info.tag, "--repo", repository, "--draft=false", "--latest"], check=True)
@@ -128,9 +169,12 @@ if __name__ == "__main__":
     parser.add_argument("dist")
     parser.add_argument("--publish", action="store_true")
     parser.add_argument("--repository")
-    parser.add_argument("--commit")
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--commit")
+    source.add_argument("--artifacts-run-id")
     args = parser.parse_args()
     if args.publish:
-        publish(args.dist, args.repository or "", args.commit or "")
+        commit = verified_build_commit(args.repository, args.artifacts_run_id) if args.artifacts_run_id else args.commit
+        publish(args.dist, args.repository or "", commit or "")
     else:
         prepare(args.dist)

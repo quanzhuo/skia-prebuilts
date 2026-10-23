@@ -18,6 +18,13 @@ A failed job prevents publishing. Correct an already published release with a
 new revision. Keep temporary Actions artifacts briefly; use Releases as the
 stable download surface. Caches never replace verification of source inputs.
 
+If all six native jobs succeeded but publication failed, dispatch the release
+workflow with `publish=true` and `artifacts_run_id` set to that completed run.
+This skips recompilation. The publisher validates repository, branch, workflow,
+all six successful jobs, all twelve archives/reports and the current recipe hash.
+The release tag points to the verified producer commit. Changed build material
+requires a new full native build; artifacts cannot be reused across recipe changes.
+
 The first release uses `0873ec164a06966b90ae0d43ef783cfb180084ae`, milestone 152,
 revision 1. It preserves the six existing GN configurations byte for byte;
 profile directories changed from `full`/`cpu-only` to `gpu`/`cpu`.
