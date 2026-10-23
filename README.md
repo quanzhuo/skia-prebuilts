@@ -67,6 +67,9 @@ Linux needs Clang, a C++ standard library/toolchain, pkg-config, Fontconfig
 and EGL/GL development packages. macOS needs Xcode and its command-line tools.
 Windows needs Visual Studio C++ tools, a Windows SDK and native LLVM under
 `C:/Program Files/LLVM`. Windows ARM64 requires ARM64 C++ tools and native ARM64 LLVM.
+For the pinned upstream revision, Windows ARM64 uses x64 GN/Ninja host executables
+under Windows emulation because the pinned ARM64 GN bootstrap package is unavailable.
+Target compilation and linking remain native ARM64.
 
 On Windows, run commands through the developer environment wrapper:
 

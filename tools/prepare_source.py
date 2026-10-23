@@ -2,8 +2,6 @@
 """Fetch the exact Skia revision and sync its pinned build dependencies."""
 
 import argparse
-import json
-import os
 from pathlib import Path
 import platform
 import subprocess
@@ -12,6 +10,17 @@ import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import release_support as release
+
+
+def host_tool_command(script):
+    # The pinned upstream GN revision has no windows-arm64 CIPD package.
+    # Windows ARM64 can execute the matching x64 GN/Ninja host tools; LLVM,
+    # MSVC libraries and the target CPU remain native ARM64 throughout.
+    if platform.system() == "Windows" and platform.machine().lower() in {"arm64", "aarch64"}:
+        return [sys.executable, "-c",
+                "import platform,runpy,sys; platform.machine=lambda:'AMD64'; "
+                "runpy.run_path(sys.argv[1], run_name='__main__')", str(script)]
+    return [sys.executable, str(script)]
 
 
 def prepare(destination, release_info):
@@ -37,13 +46,15 @@ def prepare(destination, release_info):
                                      dir=destination, delete=False) as stream:
         filtered = Path(stream.name)
         stream.write("deps = " + repr(selected) + "\n")
-    env = os.environ.copy()
-    env.update(GIT_SYNC_DEPS_PATH=str(filtered), GIT_SYNC_DEPS_SKIP_EMSDK="1")
     try:
-        subprocess.run([sys.executable, "tools/git-sync-deps"], cwd=destination, env=env, check=True)
+        code = ("import runpy,sys; sync=runpy.run_path(sys.argv[1]); "
+                "sync['git_sync_deps'](sys.argv[2], [], True, True)")
+        subprocess.run([sys.executable, "-c", code, str(destination / "tools/git-sync-deps"), str(filtered)],
+                       cwd=destination, check=True)
     finally:
         filtered.unlink()
-    subprocess.run([sys.executable, "bin/fetch-ninja"], cwd=destination, check=True)
+    for script in ("fetch-gn", "fetch-ninja"):
+        subprocess.run(host_tool_command(destination / "bin" / script), cwd=destination, check=True)
     release.verify_sources(destination, release_info, system)
 
 
