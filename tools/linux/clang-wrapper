@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+compiler=/usr/lib/llvm-21/bin/clang
+case "$(basename "$0")" in clang++) compiler="$compiler++" ;; esac
+link=yes
+for option do
+    case "$option" in
+        -c|-S|-E|-fsyntax-only|-M|-MM|--version|-dumpmachine|-dumpversion|-print-*|--print-*) link=no ;;
+    esac
+done
+if [ "$link" = yes ]; then
+    # Debian's AArch64 linker does not search the RPM sysroot's lib64 layout
+    # for indirect DT_NEEDED libraries. This is a link-time path only.
+    set -- "$@" -Wl,-rpath-link,/opt/skia-sysroot/usr/lib64:/opt/skia-sysroot/lib64
+fi
+exec "$compiler" --sysroot=/opt/skia-sysroot --gcc-install-dir="$(cat /opt/skia-target/gcc-install-dir)" "$@"

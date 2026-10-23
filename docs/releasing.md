@@ -7,6 +7,8 @@
 3. Review patches/dependencies against upstream DEPS. Do not change GN features
    to work around missing source dependencies or accept unused GN arguments.
 4. Run regression tests and native package consumer tests locally.
+   On Linux use `python tools/build_linux.py build/skia --jobs 12`; do not build
+   release libraries directly against the runner's system headers/libraries.
 5. Push validated code and `release.json` to `main`. The release workflow builds
    six native platform/architecture combinations. Manual dispatch can build
    without publishing.
@@ -24,7 +26,25 @@ This skips recompilation. The publisher validates repository, branch, workflow,
 all six successful jobs, all twelve archives/reports and the current recipe hash.
 The release tag points to the verified producer commit. Changed build material
 requires a new full native build; artifacts cannot be reused across recipe changes.
+The recipe also covers the native consumer and verification implementation;
+new verification requirements cannot reuse reports from an older policy.
 
 The first release uses `0873ec164a06966b90ae0d43ef783cfb180084ae`, milestone 152,
 revision 1. It preserves the six existing GN configurations byte for byte;
 profile directories changed from `full`/`cpu-only` to `gpu`/`cpu`.
+
+Revision 2 introduces the common glibc 2.28 baseline for Linux x64 and ARM64,
+with unchanged GN configurations and Clang 21.1.8. The shared Docker definition
+pins build/sysroot base image indexes; exact installed RPMs, sysroot digest and
+image identity are retained in each package's manifest. Review updates to
+`tools/linux/target.json`, the Dockerfile and compiler wrapper as release inputs.
+GCC Toolset runtime compatibility code retains its GPLv3 + Runtime Library
+Exception texts in the package.
+
+Linux publication additionally requires ELF symbol ceilings, the revisioned
+SONAME and its relative symlink chain, old-runtime execution and relocated
+runtime deployment. Modern-host consumers and ASan remain required. Never
+substitute a host-only `ldd` check for the old-runtime tests. ARM64 uses its
+native GitHub runner and the same source, container recipe and gates as x64.
+Changing the milestone or revision changes the SONAME; all consumers must be
+rebuilt against that exact package. Do not replace the previously published r1.

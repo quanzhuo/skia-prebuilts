@@ -20,10 +20,13 @@ class CMakePackageTests(unittest.TestCase):
     def make_package(self, profile, version="m152-0873ec164a-r1"):
         system = platform.system().lower()
         root = self.root / f"{version}-{profile}"
-        for _, destination in package.binary_layout(system, profile).values():
+        for _, destination in package.packaged_binary_layout(system, profile, version).values():
             path = root / destination
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"fixture only")
+        if system == "linux":
+            for relative, target in package.linux.library_symlinks(version).items():
+                (root / relative).symlink_to(target)
         package.write_cmake_package_files(str(root), version, system, None, profile, source_commit=package.parse_package_version(version)["commit"].ljust(40, "0"))
         return root / "lib" / "cmake" / "Skia"
 
@@ -60,6 +63,16 @@ class CMakePackageTests(unittest.TestCase):
                     code += '  message(FATAL_ERROR "Metadata changed on repeated import")\nendif()\n'
                     status, output = self.configure(code)
                     self.assertEqual(status, 0, output)
+
+    @unittest.skipUnless(platform.system() == 'Linux', 'Linux versioned shared-library contract')
+    def test_imported_target_exposes_real_and_soname_paths_to_deployment(self):
+        code = self.find(self.packages['cpu']) + '''
+file(GENERATE OUTPUT "renderer-files.txt" CONTENT "$<TARGET_FILE_NAME:Skia::Skia>\\n$<TARGET_SONAME_FILE_NAME:Skia::Skia>\\n")
+'''
+        status, output = self.configure(code)
+        self.assertEqual(status, 0, output)
+        files = (self.root / f'build-{self.sequence}' / 'renderer-files.txt').read_text().splitlines()
+        self.assertEqual(files, ['libskia.so.152.1.0', 'libskia.so.152.1'])
 
     def test_conflicting_profiles_are_rejected_in_both_orders(self):
         for first, second in (("gpu", "cpu"), ("cpu", "gpu")):
@@ -136,7 +149,7 @@ endif()
 
     def test_missing_binary_is_rejected(self):
         system = platform.system().lower()
-        _, destination = next(iter(package.binary_layout(system, "cpu").values()))
+        _, destination = next(iter(package.packaged_binary_layout(system, "cpu", "m152-0873ec164a-r1").values()))
         (self.packages["cpu"].parents[2] / destination).unlink()
         status, output = self.configure(self.find(self.packages["cpu"]))
         self.assertNotEqual(status, 0, output)

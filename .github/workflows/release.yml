@@ -66,19 +66,6 @@ jobs:
         with:
           python-version: '3.13'
           architecture: ${{ matrix.cpu }}
-      - name: Install Linux toolchain and system dependencies
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ca-certificates curl gnupg build-essential pkg-config libfontconfig1-dev libegl1-mesa-dev libgl1-mesa-dev
-          curl --fail --location --retry 3 https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor > "$RUNNER_TEMP/llvm.gpg"
-          sudo install -m 644 "$RUNNER_TEMP/llvm.gpg" /usr/share/keyrings/llvm-prebuilts.gpg
-          echo 'deb [signed-by=/usr/share/keyrings/llvm-prebuilts.gpg] https://apt.llvm.org/jammy/ llvm-toolchain-jammy-21 main' | sudo tee /etc/apt/sources.list.d/llvm-prebuilts.list
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang-21 lld-21
-          echo /usr/lib/llvm-21/bin >> "$GITHUB_PATH"
       - name: Install native Windows LLVM
         if: runner.os == 'Windows'
         shell: pwsh
@@ -114,14 +101,17 @@ jobs:
         shell: pwsh
         run: ./tools/Invoke-WindowsBuild.ps1 -TargetCpu '${{ matrix.cpu }}' -Executable python -Arguments @('-m', 'unittest', 'discover', '-s', 'tests', '-v')
       - name: Build both profiles on Unix
-        if: runner.os != 'Windows'
+        if: runner.os == 'macOS'
         run: python generate_skia_package.py build/skia --jobs ${{ matrix.jobs }}
+      - name: Build and verify Linux profiles against glibc 2.28
+        if: runner.os == 'Linux'
+        run: python tools/build_linux.py build/skia --jobs ${{ matrix.jobs }}
       - name: Build both profiles on Windows
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./tools/Invoke-WindowsBuild.ps1 -TargetCpu '${{ matrix.cpu }}' -Executable python -Arguments @('generate_skia_package.py', 'build/skia', '--jobs', '${{ matrix.jobs }}')
       - name: Verify native packages on Unix
-        if: runner.os != 'Windows'
+        if: runner.os == 'macOS'
         run: python tools/verify_packages.py dist --jobs ${{ matrix.jobs }}
       - name: Verify native packages on Windows
         if: runner.os == 'Windows'

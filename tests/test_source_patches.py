@@ -29,7 +29,7 @@ class SourcePatchTests(unittest.TestCase):
         for system in ("windows", "linux", "darwin"):
             paths = package.get_source_patch_paths(system)
             self.assertIn("0002-include-pathops-in-skia.patch", [Path(p).name for p in paths])
-            self.assertEqual(len(paths), 3 if system == "windows" else 1)
+            self.assertEqual(len(paths), {"windows": 3, "linux": 2, "darwin": 1}[system])
             self.assertTrue(all(Path(p).is_file() for p in paths))
 
     def fingerprint(self, patch_paths, revision="abc123"):
@@ -146,7 +146,7 @@ class SourcePatchTests(unittest.TestCase):
                     package.create_package(str(self.root), str(self.build), "m152-abcdef0123-r1", jobs=9, output_dir=str(self.root / "dist"))
                 self.assertEqual(build.call_count, 0 if recorded == "fingerprint" else 1)
                 if recorded != "fingerprint":
-                    build.assert_called_once_with(str(self.root), str(self.build), None, jobs=9, profile="gpu", source_validator=None)
+                    build.assert_called_once_with(str(self.root), str(self.build), None, jobs=9, profile="gpu", source_validator=None, version="m152-abcdef0123-r1")
 
 
 class PatchLifecycleTests(unittest.TestCase):
@@ -168,6 +168,16 @@ class PatchLifecycleTests(unittest.TestCase):
 }
 '''
         self.build_file.write_text(self.original, encoding="utf-8")
+        self.toolchain = self.root / "gn/toolchain/BUILD.gn"
+        self.toolchain.parent.mkdir(parents=True)
+        self.original_toolchain = '''      soname = "{{target_output_name}}{{output_extension}}"
+
+      rpath = "-Wl,-soname,$soname"
+      if (current_os == "mac" || current_os == "ios" || current_os == "tvos") {
+        rpath = "-Wl,-install_name,@rpath/$soname"
+      }
+'''
+        self.toolchain.write_text(self.original_toolchain, encoding="utf-8")
         self.patch = package.get_source_patch_paths("linux")[0]
 
     def test_patch_is_applied_and_restored_on_success_and_exception(self):
@@ -181,6 +191,7 @@ class PatchLifecycleTests(unittest.TestCase):
                 if not should_fail:
                     raise
             self.assertEqual(self.build_file.read_text(), self.original)
+            self.assertEqual(self.toolchain.read_text(), self.original_toolchain)
 
     def test_preexisting_patch_is_not_reverted(self):
         subprocess.run(["git", "apply", self.patch], cwd=self.root, check=True)

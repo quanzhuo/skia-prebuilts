@@ -69,6 +69,8 @@ set(Skia_BUILD_PROFILE "@SKIA_BUILD_PROFILE@")
 set(Skia_HAS_PATHOPS TRUE)
 set(Skia_SANITIZER "none")
 set(Skia_HEADER_ABI "uninstrumented")
+set(Skia_SOVERSION "@SKIA_SOVERSION@")
+set(Skia_GLIBC_MIN "@SKIA_GLIBC_MIN@")
 
 if(NOT TARGET Skia::Skia)
     set(Skia_FOUND FALSE)

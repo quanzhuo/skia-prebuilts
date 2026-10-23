@@ -11,7 +11,7 @@ import release_support as release
 
 class ReleaseIdentityTests(unittest.TestCase):
     def test_release_identity_has_one_canonical_spelling(self):
-        info = release.load_release()
+        info = release.Release(152, 1, release.load_release().skia_commit)
         self.assertEqual(info.tag, "m152-0873ec164a-r1")
         self.assertEqual(info.cmake_version, "152.1.0")
         self.assertEqual(len(info.skia_commit), 40)

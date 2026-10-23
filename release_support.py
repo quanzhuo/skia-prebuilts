@@ -114,10 +114,14 @@ def verify_sources(repo, release, system, profiles=("gpu", "cpu")):
 
 def recipe_digest():
     digest = hashlib.sha256()
-    paths = [ROOT / "generate_skia_package.py", ROOT / "release_support.py"]
-    for directory in ("configs", "patches", "cmake"):
-        paths.extend(p for p in (ROOT / directory).rglob("*") if p.is_file())
-    for path in sorted(paths):
+    paths = [ROOT / name for name in ("generate_skia_package.py", "release_support.py", "linux_support.py",
+                                     "tools/build_linux.py", "tools/verify_packages.py", ".dockerignore")]
+    paths.extend(p for p in (ROOT / "tests/pathops").rglob("*") if p.is_file())
+    for directory in ("configs", "patches", "cmake", "tools/linux"):
+        paths.extend(p for p in (ROOT / directory).rglob("*") if p.is_file() and "__pycache__" not in p.parts)
+    # WindowsPath compares case-insensitively; PosixPath does not. Use the
+    # portable spelling so Dockerfile/build.py order agrees on every producer.
+    for path in sorted(paths, key=lambda path: path.relative_to(ROOT).as_posix()):
         digest.update(path.relative_to(ROOT).as_posix().encode() + b"\0")
         digest.update(path.read_text(encoding="utf-8").replace("\r\n", "\n").encode() + b"\0")
     return digest.hexdigest()
@@ -139,11 +143,14 @@ def toolchain_identity(repo, system):
     if system == "windows":
         commands["linker"] = ["C:/Program Files/LLVM/bin/lld-link.exe", "--version"]
     elif system == "linux":
-        commands.update(linker=["ld", "--version"], libc=["ldd", "--version"])
+        commands.update(linker=["ld", "--version"], host_libc=["ldd", "--version"])
     if system == "darwin":
         commands.update(xcode=["xcodebuild", "-version"], sdk=["xcrun", "--show-sdk-version"],
                         linker_path=["xcrun", "--find", "ld"])
     identity = {name: command_version(command) for name, command in commands.items()}
+    if system == "linux":
+        import linux_support
+        identity["linux_target"] = linux_support.target_identity()
     if system == "windows":
         import os
         identity.update({key: os.environ.get(key, "") for key in ("VCToolsVersion", "WindowsSDKVersion")})

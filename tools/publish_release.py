@@ -12,6 +12,7 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import release_support as release
+import linux_support as linux
 
 
 PLATFORMS = ("windows-x64", "windows-arm64", "linux-x64", "linux-arm64", "macos-x64", "macos-arm64")
@@ -36,6 +37,8 @@ def prepare(dist):
             modes = {"normal", "asan-layout"}
             if platform != "windows-arm64":
                 modes.add("asan")
+            if platform.startswith("linux-"):
+                modes.update(("baseline-runtime", "elf-abi", "runtime-deployment"))
             if (item.get("archive") != archive.name or item.get("sha256") != digest
                     or item.get("platform") != platform or set(item.get("tests", [])) != modes):
                 raise ValueError(f"Verification does not match archive: {archive.name}")
@@ -54,6 +57,15 @@ def prepare(dist):
                 raise ValueError(f"Release identity mismatch: {archive.name}")
             if not re.fullmatch(r"[0-9a-f]{64}", manifest.get("recipe_sha256", "")):
                 raise ValueError("Missing recipe digest")
+            if platform.startswith("linux-"):
+                target = manifest.get("toolchain", {}).get("linux_target", {})
+                if (manifest.get("linux_abi") != linux.abi_contract(info.tag)
+                        or manifest.get("symlinks") != linux.library_symlinks(info.tag)
+                        or target.get("policy") != linux.POLICY
+                        or target.get("architecture") != platform.removeprefix("linux-")
+                        or not re.fullmatch(r"[0-9a-f]{64}", target.get("sysroot_sha256", ""))
+                        or not re.fullmatch(r"sha256:[0-9a-f]{64}", target.get("image_id", ""))):
+                    raise ValueError("Missing or incompatible Linux baseline provenance")
             if recipe is None:
                 recipe = manifest["recipe_sha256"]
             elif recipe != manifest["recipe_sha256"]:
@@ -147,6 +159,8 @@ def publish(dist, repository, commit):
         "Twelve native CPU/GPU packages for Windows, Linux and macOS, each on x64 and ARM64.\n"
         "All packages passed native consumer, relocation and ABI checks. See release-manifest.json\n"
         "for exact toolchains and sanitizer tests. Verify downloads against SHA256SUMS.\n\n"
+        f"Linux x64 and ARM64 target glibc {linux.POLICY['glibc']} and GLIBCXX_{linux.POLICY['glibcxx']}.\n"
+        f"The Linux SONAME is `{linux.library_names(info.tag)[1]}`; preserve its relative symlinks.\n\n"
         "GPU linkage tests use a Ganesh mock context; hardware GPU behavior is not certified by hosted CI.\n",
         encoding="utf-8", newline="\n")
     if existing is None:

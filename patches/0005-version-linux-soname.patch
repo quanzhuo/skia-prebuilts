@@ -1,0 +1,16 @@
+diff --git a/gn/toolchain/BUILD.gn b/gn/toolchain/BUILD.gn
+--- a/gn/toolchain/BUILD.gn
++++ b/gn/toolchain/BUILD.gn
+@@ -333,6 +333,12 @@ template("gcc_like_toolchain") {
+       soname = "{{target_output_name}}{{output_extension}}"
+ 
+       rpath = "-Wl,-soname,$soname"
++      if (current_os == "linux") {
++        _prebuilt_soversion = getenv("SKIA_PREBUILT_SOVERSION")
++        assert(_prebuilt_soversion != "",
++               "Linux prebuilts require an explicit packaging ABI version")
++        rpath = "-Wl,-soname,$soname.$_prebuilt_soversion"
++      }
+       if (current_os == "mac" || current_os == "ios" || current_os == "tvos") {
+         rpath = "-Wl,-install_name,@rpath/$soname"
+       }

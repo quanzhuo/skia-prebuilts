@@ -16,6 +16,7 @@ import zipfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import generate_skia_package as package
 import release_support as release
+import linux_support as linux
 
 
 def binary_architecture(path, system):
@@ -45,19 +46,46 @@ def extract_verified(archive, destination, expected_root):
         if path.is_absolute() or ".." in path.parts or "\\" in name or not path.parts or path.parts[0] != expected_root:
             raise ValueError(f"Unsafe or unexpected archive entry: {name}")
 
+    allowed_links = {}
+    import re
+    match = re.fullmatch(r"skia-(m[1-9][0-9]*-[0-9a-f]{10}-r[1-9][0-9]*)-(cpu|gpu)-linux-(x64|arm64)", expected_root)
+    if match:
+        allowed_links = {expected_root + "/" + name: target for name, target in linux.library_symlinks(match[1]).items()}
     if archive.name.endswith(".zip"):
         with zipfile.ZipFile(archive) as packed:
+            seen = set()
             for item in packed.infolist():
                 safe(item.orig_filename)
+                canonical = PurePosixPath(item.orig_filename).as_posix()
+                if canonical in seen:
+                    raise ValueError("Duplicate archive entry")
+                seen.add(canonical)
                 if (item.external_attr >> 16) & 0o170000 == 0o120000:
                     raise ValueError("Symlinks are not permitted in release archives")
             packed.extractall(destination)
     else:
         with tarfile.open(archive) as packed:
-            for item in packed.getmembers():
+            members = packed.getmembers()
+            seen = {}
+            for item in members:
                 safe(item.name)
-                if not item.isdir() and not item.isfile():
-                    raise ValueError("Only regular files and directories are permitted")
+                canonical = PurePosixPath(item.name).as_posix()
+                if canonical in seen:
+                    raise ValueError("Duplicate archive entry")
+                seen[canonical] = item
+                if item.issym():
+                    if allowed_links.get(canonical) != item.linkname:
+                        raise ValueError("Unexpected or unsafe archive symlink")
+                elif not item.isdir() and not item.isfile():
+                    raise ValueError("Only regular files, directories and approved library symlinks are permitted")
+            for name, item in seen.items():
+                if item.issym():
+                    target = str(PurePosixPath(name).parent / item.linkname)
+                    if target not in seen or not (seen[target].isfile() or seen[target].issym()):
+                        raise ValueError("Dangling archive symlink")
+                for parent in PurePosixPath(name).parents:
+                    if str(parent) in seen and not seen[str(parent)].isdir():
+                        raise ValueError("Archive entry has a non-directory parent")
             packed.extractall(destination, filter="data")
 
 
@@ -70,7 +98,7 @@ def verify_contents(root, release_info, system, cpu, profile):
     for key, value in expected.items():
         if manifest.get(key) != value:
             raise ValueError(f"Package manifest mismatch: {key}")
-    expected_binaries = {value[1] for value in package.binary_layout(system, profile).values()}
+    expected_binaries = {value[1] for value in package.packaged_binary_layout(system, profile, release_info.tag).values()}
     if set(manifest.get("binaries", {})) != expected_binaries:
         raise ValueError("Binary manifest is incomplete")
     for relative, checksum in manifest["binaries"].items():
@@ -85,6 +113,21 @@ def verify_contents(root, release_info, system, cpu, profile):
             raise ValueError(f"Package is incomplete: {required}")
     if not manifest.get("recipe_sha256") or not manifest.get("toolchain") or not manifest.get("dependencies"):
         raise ValueError("Package provenance is incomplete")
+    if system == "linux":
+        if manifest.get("linux_abi") != linux.abi_contract(release_info.tag) or manifest.get("symlinks") != linux.library_symlinks(release_info.tag):
+            raise ValueError("Incorrect Linux ABI or symlink manifest")
+        for relative, target in manifest["symlinks"].items():
+            path = root / relative
+            if not path.is_symlink() or path.readlink().as_posix() != target or not path.resolve().is_relative_to(root.resolve()):
+                raise ValueError("Incorrect Linux library symlink")
+        elf = linux.inspect_elf(root / manifest["linux_abi"]["library"], release_info.tag)
+        if manifest.get("linux_elf") != elf:
+            raise ValueError("ELF metadata does not match binary")
+        if manifest["toolchain"].get("linux_target") != linux.target_identity():
+            raise ValueError("Linux package uses a different target toolchain")
+        for name in ("COPYING3", "COPYING.RUNTIME", "NOTICE.txt"):
+            if not (root / "licenses/GCC-Runtime" / name).is_file():
+                raise ValueError("Missing GCC runtime redistribution notices")
     return manifest
 
 
@@ -92,6 +135,9 @@ def verify(dist, jobs, use_asan=True):
     info = release.load_release()
     system = platform.system().lower()
     cpu = package.normalize_cpu_name(platform.machine())
+    target = linux.target_identity() if system == "linux" else None
+    if target and target["architecture"] != cpu:
+        raise ValueError("Linux target architecture does not match native host")
     results = []
     # Verify the extracted package outside its source/build trees. Runtime
     # discovery must work after relocation, without hidden checkout paths.
@@ -126,12 +172,44 @@ def verify(dist, jobs, use_asan=True):
                 modes.append("asan")
             for mode in modes:
                 build = temporary / "consumers" / profile / mode
+                compiler = []
+                if target:
+                    compiler = ["-DCMAKE_CXX_COMPILER=" + ("/usr/bin/g++" if mode == "asan" else "/opt/skia-toolchain/bin/clang++")]
                 subprocess.run(["cmake", "-S", str(release.ROOT / "tests/pathops"), "-B", str(build), "-G", "Ninja",
                                 "-DCMAKE_BUILD_TYPE=RelWithDebInfo", f"-DCMAKE_PREFIX_PATH={root}",
                                 f"-DSKIA_EXPECT_PROFILE={profile}", f"-DSKIA_TEST_ASAN={'ON' if mode == 'asan' else 'OFF'}",
-                                f"-DSKIA_TEST_ASAN_LAYOUT={'ON' if mode == 'asan-layout' else 'OFF'}"], check=True)
+                                f"-DSKIA_TEST_ASAN_LAYOUT={'ON' if mode == 'asan-layout' else 'OFF'}", *compiler], check=True)
                 subprocess.run(["cmake", "--build", str(build), "-j", str(jobs)], check=True)
                 subprocess.run(["ctest", "--test-dir", str(build), "--output-on-failure"], check=True)
+                if target and mode != "asan":
+                    command = linux.runtime_command(build / "skia_pathops_smoke", root, target)
+                    # --list must resolve every dependency inside the package or
+                    # old sysroot, so a modern host cannot hide a missing runtime.
+                    linked = subprocess.check_output([*command[:-1], "--list", command[-1]], text=True)
+                    if "not found" in linked:
+                        raise RuntimeError(linked)
+                    for line in linked.splitlines():
+                        if " => /" in line:
+                            resolved = Path(line.split(" => ", 1)[1].split()[0]).resolve()
+                            if not any(resolved.is_relative_to(Path(parent).resolve()) for parent in (root, target["sysroot"])):
+                                raise RuntimeError(f"Baseline test leaked a host library: {line}")
+                    subprocess.run(command, check=True)
+                    # Prove runtime deployment using the imported target's real
+                    # file and SONAME alias; no development symlink is required.
+                    bundle = temporary / "deployment" / profile / mode
+                    bundle.mkdir(parents=True)
+                    real, soname = linux.library_names(info.tag)
+                    shutil.copy2(root / "lib" / real, bundle / real)
+                    (bundle / soname).symlink_to(real)
+                    shutil.copy2(build / "skia_pathops_smoke", bundle / "consumer")
+                    deployment = linux.runtime_command(bundle / "consumer", root, target)
+                    deployment[2] = str(bundle) + ":" + deployment[2].split(":", 1)[1]
+                    resolved = subprocess.check_output([*deployment[:-1], "--list", deployment[-1]], text=True)
+                    if f"{soname} => {bundle / soname} " not in resolved:
+                        raise RuntimeError("Runtime deployment did not load its own versioned Skia library: " + resolved)
+                    subprocess.run(deployment, check=True)
+            if target:
+                modes.extend(["baseline-runtime", "elf-abi", "runtime-deployment"])
             results.append(dict(archive=archive.name, sha256=release.file_digest(archive), tests=modes,
                                 platform=manifest["platform"], profile=profile))
     release.write_json(Path(dist) / f"verification-{package.detect_package_platform(system, cpu)}.json", results)

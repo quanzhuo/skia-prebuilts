@@ -1,5 +1,7 @@
 import contextlib
+import hashlib
 import io
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -16,6 +18,19 @@ VERSION = "m152-0873ec164a-r1"
 
 
 class ProfileTests(unittest.TestCase):
+    def test_existing_gn_configs_remain_byte_for_byte_unchanged(self):
+        expected = {
+            'cpu/args.gn.linux': '48ac67475ca8f517d214f80c6861e53ca5c99ec0b7d6eeb312b8d322bd9a6fcb',
+            'cpu/args.gn.macos': 'db88e114f044ec06695f01443d31b2d218d394673ece86a6a2a8bcbf3e6ca36c',
+            'cpu/args.gn.windows': '108ab2fbee7bd89458be3d80a3b80088c0e9da1e71e17abf6b1d6304777d5f72',
+            'gpu/args.gn.linux': 'd206e7c3f3e65425c7b8e092f9fe89615b5682ff92d2f12078471fa12ca9df43',
+            'gpu/args.gn.macos': '54f2ce3e8ed4dc6fa96edc0d07053ba2c2a2ab8178878f31cf7c2422257e10f8',
+            'gpu/args.gn.windows': '8e07036bb0ea17ba63231f1dd1ab66b812aec7d75a63d95dd6cc7e639825ba7d',
+        }
+        for relative, digest in expected.items():
+            with self.subTest(config=relative):
+                self.assertEqual(hashlib.sha256((package.release.ROOT / 'configs' / relative).read_bytes()).hexdigest(), digest)
+
     def test_names_are_derived_for_each_platform_and_profile(self):
         for system, prefix in (("Windows", "windows"), ("Linux", "linux"), ("Darwin", "macos")):
             for machine, cpu in (("AMD64", "x64"), ("aarch64", "arm64")):
@@ -86,6 +101,12 @@ class PackageTests(unittest.TestCase):
         self.build.mkdir()
         self.enterContext(mock.patch.object(package.release, "verify_sources", return_value={}))
         self.enterContext(mock.patch.object(package.release, "toolchain_identity", return_value={}))
+        self.enterContext(mock.patch.object(package.release, "load_release", return_value=package.release.Release(152, 1, "0873ec164a" + "0" * 30)))
+        self.runtime_licenses = self.root / "runtime-licenses"
+        self.runtime_licenses.mkdir()
+        (self.runtime_licenses / "COPYING.RUNTIME").write_text("Fixture GCC runtime exception")
+        self.enterContext(mock.patch.object(package.linux, "target_identity", return_value={"runtime_licenses": str(self.runtime_licenses)}))
+        self.enterContext(mock.patch.object(package.linux, "inspect_elf", return_value={"fixture": "not a native ELF test"}))
         for relative in ("include/core/SkMilestone.h", "include/pathops/SkPathOps.h",
                          "modules/skcms/skcms.h", "modules/skcms/src/skcms_public.h",
                          "third_party/externals/angle2/include/EGL/egl.h"):
@@ -157,6 +178,8 @@ class PackageTests(unittest.TestCase):
 
     def test_archives_contain_matching_profile_metadata_and_only_required_binaries(self):
         for system in ("windows", "linux", "darwin"):
+            if system == "linux" and os.name == "nt":
+                continue  # Native Linux tests exercise actual tar symlinks.
             for profile in package.PROFILES:
                 with self.subTest(system=system, profile=profile), self.cached_package(system) as build:
                     archive = self.create(profile)
@@ -172,6 +195,11 @@ class PackageTests(unittest.TestCase):
                             names = packed.getnames()
                             contents = packed.extractfile(f"{name}/lib/cmake/Skia/SkiaTargets.cmake").read().decode()
                             config = packed.extractfile(f"{name}/lib/cmake/Skia/SkiaConfig.cmake").read().decode()
+                            if system == "linux":
+                                for relative, target in package.linux.library_symlinks(VERSION).items():
+                                    item = packed.getmember(f"{name}/{relative}")
+                                    self.assertTrue(item.issym())
+                                    self.assertEqual(item.linkname, target)
                     self.assertTrue(all(entry == name or entry.startswith(name + "/") for entry in names))
                     self.assertIn(f"{name}/include/pathops/SkPathOps.h", names)
                     self.assertIn(f'set(Skia_BUILD_PROFILE "{profile}")', config)

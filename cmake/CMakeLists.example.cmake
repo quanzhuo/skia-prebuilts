@@ -3,7 +3,7 @@ project(SkiaApp LANGUAGES CXX)
 
 include(FetchContent)
 
-set(SKIA_VERSION "m152-0873ec164a-r1" CACHE STRING "An actually published Skia version")
+set(SKIA_VERSION "m152-0873ec164a-r2" CACHE STRING "Skia release tag")
 set(SKIA_PROFILE "gpu" CACHE STRING "Skia prebuilt profile: gpu or cpu")
 set_property(CACHE SKIA_PROFILE PROPERTY STRINGS gpu cpu)
 if(SKIA_PROFILE STREQUAL "gpu")

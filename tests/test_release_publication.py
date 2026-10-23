@@ -9,6 +9,7 @@ from unittest import mock
 import zipfile
 
 import release_support as release
+import linux_support as linux
 from tools import publish_release as publication
 
 
@@ -28,6 +29,10 @@ class PublicationTests(unittest.TestCase):
                 manifest = dict(release_tag=self.info.tag, skia_commit=self.info.skia_commit,
                                 cmake_version=self.info.cmake_version, profile=profile, platform=platform,
                                 recipe_sha256=self.recipe)
+                if platform.startswith("linux-"):
+                    manifest.update(linux_abi=linux.abi_contract(self.info.tag), symlinks=linux.library_symlinks(self.info.tag),
+                                    toolchain=dict(linux_target=dict(policy=linux.POLICY, architecture=platform.removeprefix("linux-"),
+                                                                    sysroot_sha256="a" * 64, image_id="sha256:" + "b" * 64)))
                 payload = json.dumps(manifest).encode()
                 if archive.suffix == ".zip":
                     with zipfile.ZipFile(archive, "w") as packed:
@@ -40,6 +45,8 @@ class PublicationTests(unittest.TestCase):
                 digest = release.file_digest(archive)
                 archive.with_name(archive.name + ".sha256").write_text(f"{digest}  {archive.name}\n")
                 modes = ["normal", "asan-layout"] + ([] if platform == "windows-arm64" else ["asan"])
+                if platform.startswith("linux-"):
+                    modes.extend(["baseline-runtime", "elf-abi", "runtime-deployment"])
                 reports.append(dict(profile=profile, platform=platform, archive=archive.name, sha256=digest, tests=modes))
                 self.archives.append(archive)
             release.write_json(self.root / f"verification-{platform}.json", reports)
@@ -70,6 +77,16 @@ class PublicationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Verification"):
             publication.prepare(self.root)
 
+    def test_missing_old_runtime_or_deployment_test_blocks_publication(self):
+        path = self.root / 'verification-linux-arm64.json'
+        original = json.loads(path.read_text())
+        for mode in ('baseline-runtime', 'elf-abi', 'runtime-deployment'):
+            data = json.loads(json.dumps(original))
+            data[0]['tests'].remove(mode)
+            release.write_json(path, data)
+            with self.subTest(mode=mode), self.assertRaisesRegex(ValueError, 'Verification'):
+                publication.prepare(self.root)
+
     def test_unexpected_archive_blocks_assembly(self):
         (self.root / "unexpected.zip").write_bytes(b"extra")
         with self.assertRaisesRegex(ValueError, "exactly"):
@@ -78,6 +95,11 @@ class PublicationTests(unittest.TestCase):
     def test_artifacts_from_another_build_recipe_are_rejected(self):
         with mock.patch.object(publication.release, "recipe_digest", return_value="b" * 64):
             with self.assertRaisesRegex(ValueError, "current build recipe"):
+                publication.prepare(self.root)
+
+    def test_linux_packages_from_a_different_runtime_policy_are_rejected(self):
+        with mock.patch.dict(publication.linux.POLICY, glibc='2.35'):
+            with self.assertRaisesRegex(ValueError, 'Linux baseline provenance'):
                 publication.prepare(self.root)
 
     def test_draft_lookup_uses_authenticated_listing_when_tag_endpoint_returns_404(self):
@@ -94,7 +116,7 @@ class PublicationTests(unittest.TestCase):
             mutation.assert_not_called()
 
     def test_revision_cannot_be_reused_for_another_upstream_commit(self):
-        history = [[dict(tag_name="m152-abcdef0123-r1")]]
+        history = [[dict(tag_name=f"m152-abcdef0123-r{self.info.revision}")]]
         with mock.patch.object(publication, "api", return_value=None), \
              mock.patch.object(publication.subprocess, "check_output", return_value=json.dumps(history)), \
              mock.patch.object(publication.subprocess, "run") as mutation:

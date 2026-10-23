@@ -12,10 +12,10 @@ the milestone, full upstream SHA and a positive release revision.
 
 | Identity | Example |
 | --- | --- |
-| Release tag | `m152-0873ec164a-r1` |
-| CMake version | `152.1.0` |
-| CPU package | `skia-m152-0873ec164a-r1-cpu-windows-x64.zip` |
-| GPU package | `skia-m152-0873ec164a-r1-gpu-linux-arm64.tar.gz` |
+| Release tag | `m152-0873ec164a-r2` |
+| CMake version | `152.2.0` |
+| CPU package | `skia-m152-0873ec164a-r2-cpu-windows-x64.zip` |
+| GPU package | `skia-m152-0873ec164a-r2-gpu-linux-arm64.tar.gz` |
 
 `revision` increases monotonically **within a milestone**. Increment it whenever
 the upstream commit, patches, toolchain, configuration or packaging changes.
@@ -45,11 +45,23 @@ are alternative packages and cannot be imported together.
 ## Prepare sources and build
 
 Requirements: Python 3.11+, Git, CMake 3.21+, and a native Clang toolchain.
+Linux release builds use Docker on a native x64 or ARM64 Linux host.
 Use a new source directory for a different upstream commit.
 
 ```sh
 python tools/prepare_source.py build/skia
 export PATH="$PWD/build/skia/third_party/ninja:$PATH"
+```
+
+On Linux, build and verify both profiles with the baseline container:
+
+```sh
+python tools/build_linux.py build/skia --jobs 12
+```
+
+On macOS:
+
+```sh
 python generate_skia_package.py build/skia --jobs 12
 python tools/verify_packages.py dist --jobs 12
 ```
@@ -63,8 +75,8 @@ WASM, Dawn and test dependencies are omitted. GN feature flags are not rewritten
 See the official [download](https://skia.org/docs/user/download/) and
 [build](https://skia.org/docs/user/build/) documentation.
 
-Linux needs Clang, a C++ standard library/toolchain, pkg-config, Fontconfig
-and EGL/GL development packages. macOS needs Xcode and its command-line tools.
+The Linux container supplies Clang, the target C++ toolchain, pkg-config,
+Fontconfig and EGL/GL development packages. macOS needs Xcode and its command-line tools.
 Windows needs Visual Studio C++ tools, a Windows SDK and native LLVM under
 `C:/Program Files/LLVM`. Windows ARM64 requires ARM64 C++ tools and native ARM64 LLVM.
 For the pinned upstream revision, Windows ARM64 uses x64 GN/Ninja host executables
@@ -91,7 +103,7 @@ supported only on macOS; release CI tests every architecture on a native runner.
 ## CMake package contract
 
 ```cmake
-find_package(Skia 152.1.0 EXACT CONFIG REQUIRED
+find_package(Skia 152.2.0 EXACT CONFIG REQUIRED
     PATHS "/path/to/extracted/package" NO_DEFAULT_PATH)
 target_link_libraries(my_application PRIVATE Skia::Skia)
 ```
@@ -125,6 +137,43 @@ Actual ASan consumers run on supported platforms. Windows ARM64 runs native
 consumers and a simulated sanitizer-detection layout test because MSVC ASan
 currently supports only x86/x64.
 
+### Linux baseline and shared-library version
+
+Starting with `m152-0873ec164a-r2`, both Linux architectures target **glibc 2.28**,
+`GLIBCXX_3.4.25` and `CXXABI_1.3.11` or older symbol requirements. These are
+runtime limits; consumers still need a compiler and headers supporting C++20.
+Clang remains **21.1.8**. The six GN configurations are unchanged.
+
+[`tools/linux/target.json`](tools/linux/target.json) defines the shared policy.
+A modern build container uses an AlmaLinux 8 target sysroot with GCC Toolset 11
+C++ headers and its nonshared compatibility archive. Packages dynamically use
+the destination system's glibc and libstdc++; neither runtime is bundled.
+GCC runtime license texts and its exception are included under `licenses/GCC-Runtime/`.
+Both base image indexes are pinned by digest. The manifest records the native
+architecture, exact target RPMs, sysroot content digest and concrete build image
+ID separately from the build host's libc. Recipe and toolchain identities
+invalidate incompatible caches.
+
+The revision is a conservative ABI boundary. For CMake version `152.2.0`:
+
+```text
+libskia.so -> libskia.so.152.2 -> libskia.so.152.2.0
+```
+
+The ELF SONAME is `libskia.so.152.2`. `Skia::Skia` imports the real versioned file
+and exports `IMPORTED_SONAME`; `Skia_SOVERSION` and `Skia_GLIBC_MIN` expose this
+metadata. A runtime deployment needs the real file and its SONAME alias; the
+unversioned link is for development. Preserve relative symlinks when copying.
+Matching milestones alone do not promise ABI compatibility between revisions
+or permit loading CPU and GPU packages together.
+
+Native CI checks the actual ELF requirements and runs relocated consumers with
+the old target loader, glibc and libstdc++. It also runs consumers on the modern
+build system and runs an ASan consumer with the modern GCC runtime. Baseline
+and deployment checks are required for publication on both x64 and ARM64.
+This verifies the userland ABI; GPU drivers and other system dependencies must
+still satisfy the selected backends. Hosted tests use a Ganesh mock context.
+
 ## Integrity and tests
 
 The packager verifies clean sources and dependencies at their upstream DEPS
@@ -150,6 +199,9 @@ metadata and relocation. It compiles/runs consumers for PathOps, path building,
 CPU raster, PNG round trips, Ganesh mock context and Windows ANGLE imports in
 normal, sanitizer-detection and supported ASan modes. Mock contexts validate
 Ganesh linkage without claiming hardware GPU validation on hosted runners.
+Linux archives permit exactly the two declared, relative library symlinks.
+Other links, hardlinks, duplicate entries and paths escaping the archive root
+are rejected.
 
 Release CI publishes only after all six native jobs and twelve packages pass.
 Assets include twelve archives, `SHA256SUMS` and a release manifest. See

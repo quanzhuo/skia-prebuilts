@@ -22,6 +22,7 @@ from contextlib import contextmanager
 from typing import Optional
 
 import release_support as release
+import linux_support as linux
 
 
 def validate_directory(path: str, name: str) -> None:
@@ -69,6 +70,8 @@ def get_source_patch_paths(system: str, profile: str = "gpu") -> list[str]:
         names.append("0001-expose-angle-runtime-target.patch")
     # PathOps is a CPU geometry capability, independent of platform/GPU backend.
     names.append("0002-include-pathops-in-skia.patch")
+    if system == "linux":
+        names.append("0005-version-linux-soname.patch")
     if system == "windows" and profile == "gpu":
         names.append("0004-disable-unavailable-arm64-wgl.patch")
     return [os.path.join(get_script_dir(), "patches", name) for name in names]
@@ -77,14 +80,15 @@ def get_source_patch_paths(system: str, profile: str = "gpu") -> list[str]:
 BUILD_INPUTS_STAMP = ".skia-package-build-inputs.sha256"
 
 
-def source_build_fingerprint(skia_repo_dir: str, system: str, profile: str = "gpu") -> str:
+def source_build_fingerprint(skia_repo_dir: str, system: str, profile: str = "gpu", version: Optional[str] = None) -> str:
     """记录提交、profile、配置和补丁，避免复用其他构建输入的二进制。"""
     revision = subprocess.run(
         ["git", "rev-parse", "HEAD"], cwd=skia_repo_dir,
         capture_output=True, text=True, check=True,
     ).stdout.strip()
     digest = hashlib.sha256()
-    digest.update(f"skia-package-inputs-v2\n{system}\n{profile}\n{revision}\n".encode("utf-8"))
+    version = version or release.load_release().tag
+    digest.update(f"skia-package-inputs-v3\n{system}\n{profile}\n{revision}\n{version}\n".encode("utf-8"))
     digest.update(read_text_file(get_args_gn_file_path(system, profile)).encode("utf-8") + b"\0")
     digest.update(release.recipe_digest().encode("ascii"))
     for patch_path in get_source_patch_paths(system, profile):
@@ -349,13 +353,15 @@ def get_interface_compile_definitions(system: str, profile: str = "gpu") -> str:
     return ";".join(common_definitions + platform_definitions)
 
 
-def get_imported_location_checks(system: str, profile: str = "gpu") -> str:
+def get_imported_location_checks(system: str, profile: str = "gpu", version: Optional[str] = None) -> str:
     """获取 SkiaTargets.cmake 用来校验包完整性的文件列表"""
-    return "\n".join(f'    "${{_skia_package_prefix}}/{destination}"'
-                     for _, destination in binary_layout(system, profile).values())
+    destinations = [destination for _, destination in packaged_binary_layout(system, profile, version).values()]
+    if system == "linux":
+        destinations.extend(linux.library_symlinks(version or release.load_release().tag))
+    return "\n".join(f'    "${{_skia_package_prefix}}/{destination}"' for destination in destinations)
 
 
-def get_imported_location_properties(system: str) -> str:
+def get_imported_location_properties(system: str, version: Optional[str] = None) -> str:
     """获取 Skia imported target 的平台二进制路径属性"""
     if system == "windows":
         return (
@@ -363,7 +369,9 @@ def get_imported_location_properties(system: str) -> str:
             '    IMPORTED_IMPLIB "${_skia_package_prefix}/lib/skia.dll.lib"'
         )
     if system == "linux":
-        return '    IMPORTED_LOCATION "${_skia_package_prefix}/lib/libskia.so"'
+        real, soname = linux.library_names(version or release.load_release().tag)
+        return (f'    IMPORTED_LOCATION "${{_skia_package_prefix}}/lib/{real}"\n'
+                f'    IMPORTED_SONAME "{soname}"')
     if system == "darwin":
         return '    IMPORTED_LOCATION "${_skia_package_prefix}/lib/libskia.dylib"'
     raise RuntimeError(f"不支持的平台: {system}")
@@ -478,6 +486,7 @@ def build_skia(
     jobs: Optional[int] = None,
     profile: str = "gpu",
     source_validator=None,
+    version: Optional[str] = None,
 ) -> None:
     """
     构建 Skia 库
@@ -488,7 +497,8 @@ def build_skia(
     """
     jobs = resolve_jobs(jobs)
     system = platform.system().lower()
-    fingerprint = source_build_fingerprint(skia_repo_dir, system, profile)
+    version = version or release.load_release().tag
+    fingerprint = source_build_fingerprint(skia_repo_dir, system, profile, version)
     if not os.path.exists(build_dir):
         os.makedirs(build_dir, exist_ok=True)
         print(f"已创建构建目录: {build_dir}")
@@ -508,10 +518,14 @@ def build_skia(
         gn_script = os.path.join(skia_repo_dir, "bin", "gn")
 
         print(f"正在执行 GN 生成: {gn_script} gen {build_dir}")
+        gn_environment = dict(os.environ)
+        if system == "linux":
+            gn_environment["SKIA_PREBUILT_SOVERSION"] = parse_package_version(version)["version"].rsplit(".", 1)[0]
         try:
             subprocess.run(
                 [gn_script, "gen", build_dir, "--fail-on-unused-args"],
                 cwd=skia_repo_dir,
+                env=gn_environment,
                 check=True
             )
             print("GN 生成完成")
@@ -528,6 +542,7 @@ def build_skia(
             subprocess.run(
                 ["ninja", "-C", build_dir, "-j", str(jobs), *targets],
                 cwd=skia_repo_dir,
+                env=gn_environment,
                 check=True
             )
             print("Ninja 编译完成")
@@ -536,7 +551,7 @@ def build_skia(
             raise RuntimeError("Ninja 编译失败")
 
     # Only certify inputs after both compilation and patch restoration succeed.
-    if source_build_fingerprint(skia_repo_dir, system, profile) != fingerprint:
+    if source_build_fingerprint(skia_repo_dir, system, profile, version) != fingerprint:
         raise RuntimeError("构建期间 Skia 提交、配置或打包补丁发生变化，请重新构建。")
     if source_validator is not None:
         source_validator()
@@ -575,6 +590,14 @@ def find_binary_files(build_dir: str, system: str, profile: str = "gpu") -> dict
     }
 
 
+def packaged_binary_layout(system: str, profile: str = "gpu", version: Optional[str] = None) -> dict:
+    if system == "linux":
+        validate_profile(profile)
+        real, _ = linux.library_names(version or release.load_release().tag)
+        return {"so": ("libskia.so", f"lib/{real}")}
+    return binary_layout(system, profile)
+
+
 def has_required_binary_files(binaries: dict, system: str, profile: str = "gpu") -> bool:
     return all(key in binaries for key in binary_layout(system, profile))
 
@@ -606,8 +629,10 @@ def write_cmake_package_files(
         "SKIA_GPU_BACKENDS": get_gpu_backends(system, profile),
         "SKIA_CMAKE_PLATFORM_CONDITION": get_cmake_platform_condition(system),
         "SKIA_INTERFACE_COMPILE_DEFINITIONS": get_interface_compile_definitions(system, profile),
-        "SKIA_IMPORTED_LOCATION_CHECKS": get_imported_location_checks(system, profile),
-        "SKIA_IMPORTED_LOCATION_PROPERTIES": get_imported_location_properties(system),
+        "SKIA_IMPORTED_LOCATION_CHECKS": get_imported_location_checks(system, profile, version),
+        "SKIA_IMPORTED_LOCATION_PROPERTIES": get_imported_location_properties(system, version),
+        "SKIA_SOVERSION": version_info["version"].rsplit(".", 1)[0] if system == "linux" else "",
+        "SKIA_GLIBC_MIN": linux.POLICY["glibc"] if system == "linux" else "",
         "SKIA_AUXILIARY_IMPORTED_TARGETS": get_auxiliary_imported_targets(system, profile),
     }
     for template_name in ("SkiaConfig", "SkiaConfigVersion", "SkiaTargets"):
@@ -631,14 +656,14 @@ def create_package(
     system = platform.system().lower()
     name = package_name(version, system, target_cpu, profile)
     source_commit = validate_source_version(skia_repo_dir, version)
-    fingerprint = source_build_fingerprint(skia_repo_dir, system, profile)
+    fingerprint = source_build_fingerprint(skia_repo_dir, system, profile, version)
     binaries = find_binary_files(build_dir, system, profile)
     if (force_build or not has_required_binary_files(binaries, system, profile)
             or not build_args_gn_is_current(build_dir, system, target_cpu, profile)
             or not build_source_is_current(build_dir, fingerprint)):
         print(f"[{profile}] 开始构建（配置、源码、补丁或成功记录需要更新）。")
         build_skia(skia_repo_dir, build_dir, target_cpu, jobs=jobs, profile=profile,
-                   source_validator=source_validator)
+                   source_validator=source_validator, version=version)
         binaries = find_binary_files(build_dir, system, profile)
     else:
         print(f"[{profile}] 复用已验证构建记录对应的二进制。")
@@ -662,10 +687,18 @@ def create_package(
             )
         for relative_path in ("modules/skcms/skcms.h", "modules/skcms/src/skcms_public.h"):
             copy_file(os.path.join(skia_repo_dir, relative_path), os.path.join(package_dir, relative_path))
-        for key, (_, destination) in binary_layout(system, profile).items():
+        for key, (_, destination) in packaged_binary_layout(system, profile, version).items():
             copy_file(binaries[key], os.path.join(package_dir, destination))
+        linux_elf = None
+        if system == "linux":
+            linux_elf = linux.inspect_elf(binaries["so"], version)
+            for relative, target in linux.library_symlinks(version).items():
+                os.symlink(target, os.path.join(package_dir, relative))
+            runtime_licenses = linux.target_identity()["runtime_licenses"]
         release.stabilize_asan_headers(package_dir)
         release.stage_licenses(skia_repo_dir, package_dir, system, profile)
+        if system == "linux":
+            copy_directory(runtime_licenses, os.path.join(package_dir, "licenses", "GCC-Runtime"))
         write_cmake_package_files(package_dir, version, system, target_cpu, profile, source_commit)
         manifest = dict(provenance or {})
         manifest.update(schema_version=1, release_tag=version, skia_commit=source_commit,
@@ -674,10 +707,12 @@ def create_package(
                         gpu_backends=get_gpu_backends(system, profile).split(";") if profile == "gpu" else [],
                         sanitizer="none", header_abi="uninstrumented",
                         binaries={destination: release.file_digest(binaries[key])
-                                  for key, (_, destination) in binary_layout(system, profile).items()})
+                                  for key, (_, destination) in packaged_binary_layout(system, profile, version).items()})
+        if system == "linux":
+            manifest.update(symlinks=linux.library_symlinks(version), linux_abi=linux.abi_contract(version), linux_elf=linux_elf)
         release.write_json(os.path.join(package_dir, "build-manifest.json"), manifest)
         validate_source_version(skia_repo_dir, version)
-        if source_build_fingerprint(skia_repo_dir, system, profile) != fingerprint:
+        if source_build_fingerprint(skia_repo_dir, system, profile, version) != fingerprint:
             raise RuntimeError("构建或打包期间源码提交、配置或补丁发生变化，请重新运行。")
         archive_format = "zip" if system == "windows" else "gztar"
         archive = shutil.make_archive(os.path.join(staging, name), archive_format, staging, name)

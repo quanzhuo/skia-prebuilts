@@ -1,0 +1,7 @@
+*
+!tools/
+!tools/linux/
+!tools/linux/Dockerfile
+!tools/linux/clang-wrapper
+!tools/linux/write_target_manifest.py
+!tools/linux/target.json

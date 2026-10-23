@@ -5,6 +5,9 @@ import tarfile
 import tempfile
 import unittest
 import zipfile
+import os
+
+import linux_support as linux
 
 from tools.verify_packages import binary_architecture, extract_verified
 
@@ -73,3 +76,42 @@ class ArchiveVerificationTests(unittest.TestCase):
             packed.addfile(item, io.BytesIO(b"data"))
         extract_verified(archive, self.root / "extract", "package")
         self.assertEqual((self.root / "extract/package/NOTICE.txt").read_text(), "data")
+
+    def linux_archive(self, change=None):
+        tag = 'm152-0873ec164a-r2'
+        name = f'skia-{tag}-cpu-linux-arm64'
+        archive = self.root / (name + '.tar.gz')
+        with tarfile.open(archive, 'w:gz') as packed:
+            item = tarfile.TarInfo(name + '/lib/' + linux.library_names(tag)[0])
+            item.size = 4
+            packed.addfile(item, io.BytesIO(b'data'))
+            for relative, target in linux.library_symlinks(tag).items():
+                item = tarfile.TarInfo(name + '/' + relative)
+                item.type, item.linkname = tarfile.SYMTYPE, target
+                if change: change(item)
+                packed.addfile(item)
+        return archive, name
+
+    @unittest.skipIf(os.name == 'nt', 'Windows runners need not grant symlink creation')
+    def test_linux_relative_library_symlinks_survive_extraction(self):
+        archive, name = self.linux_archive()
+        extract_verified(archive, self.root / 'extract', name)
+        path = self.root / 'extract' / name / 'lib/libskia.so'
+        self.assertTrue(path.is_symlink())
+        self.assertEqual(path.readlink().as_posix(), 'libskia.so.152.2')
+        self.assertEqual(path.read_bytes(), b'data')
+
+    def test_linux_links_cannot_be_redirected_or_turned_into_hardlinks(self):
+        for target in ('/tmp/escape', '../../escape', 'libskia.so.152.1', 'libskia.so', 'missing'):
+            archive, name = self.linux_archive(lambda item: setattr(item, 'linkname', target))
+            with self.subTest(target=target), self.assertRaises(ValueError):
+                extract_verified(archive, self.root / 'extract', name)
+        archive, name = self.linux_archive(lambda item: setattr(item, 'type', tarfile.LNKTYPE))
+        with self.assertRaises(ValueError): extract_verified(archive, self.root / 'extract', name)
+
+    def test_duplicate_archive_entries_are_rejected(self):
+        archive = self.root / 'package.tar.gz'
+        with tarfile.open(archive, 'w:gz') as packed:
+            for _ in range(2): packed.addfile(tarfile.TarInfo('package/file'))
+        with self.assertRaisesRegex(ValueError, 'Duplicate'):
+            extract_verified(archive, self.root / 'extract', 'package')
