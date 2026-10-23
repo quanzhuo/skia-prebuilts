@@ -1,0 +1,30 @@
+diff --git a/src/gpu/ganesh/gl/win/GrGLMakeWinInterface.cpp b/src/gpu/ganesh/gl/win/GrGLMakeWinInterface.cpp
+--- a/src/gpu/ganesh/gl/win/GrGLMakeWinInterface.cpp
++++ b/src/gpu/ganesh/gl/win/GrGLMakeWinInterface.cpp
+@@ -7,6 +7,7 @@
+ #include "include/core/SkTypes.h"
+ #include "include/gpu/ganesh/gl/GrGLAssembleInterface.h"
+ #include "include/gpu/ganesh/gl/GrGLInterface.h"
++#include "include/gpu/ganesh/gl/win/GrGLMakeWinInterface.h"
+ #include "src/core/SkLeanWindows.h"
+ #include "src/gpu/ganesh/gl/GrGLUtil.h"
+ 
+@@ -15,6 +16,11 @@
+ 
+ namespace GrGLInterfaces {
+ sk_sp<const GrGLInterface> MakeWin() {
++#if defined(_M_ARM64)
++    // WGL is unavailable on Windows ARM64, matching MakeNativeInterface().
++    // ANGLE clients supply their EGL/GLES interface to the Ganesh factory.
++    return nullptr;
++#else
+     if (nullptr == wglGetCurrentContext()) {
+         return nullptr;
+     }
+@@ -50,5 +56,6 @@
+         return GrGLMakeAssembledGLInterface((void*)module.get(), win_get_gl_proc);
+     }
+     return nullptr;
++#endif
+ }
+ }  // namespace GrGLInterfaces

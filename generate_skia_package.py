@@ -69,6 +69,8 @@ def get_source_patch_paths(system: str, profile: str = "gpu") -> list[str]:
         names.append("0001-expose-angle-runtime-target.patch")
     # PathOps is a CPU geometry capability, independent of platform/GPU backend.
     names.append("0002-include-pathops-in-skia.patch")
+    if system == "windows" and profile == "gpu":
+        names.append("0004-disable-unavailable-arm64-wgl.patch")
     return [os.path.join(get_script_dir(), "patches", name) for name in names]
 
 

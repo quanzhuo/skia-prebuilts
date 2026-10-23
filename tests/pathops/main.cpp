@@ -16,6 +16,10 @@
 #ifdef SKIA_TEST_ANGLE
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>
+#if defined(_M_ARM64)
+#include "include/gpu/ganesh/gl/GrGLInterface.h"
+#include "include/gpu/ganesh/gl/win/GrGLMakeWinInterface.h"
+#endif
 #endif
 
 static_assert(sizeof(skia_private::TArray<int>) == 16, "Prebuilt container ABI changed");
@@ -86,6 +90,10 @@ int main()
 #ifdef SKIA_TEST_ANGLE
     if (eglGetError() != EGL_SUCCESS || glGetError() != GL_NO_ERROR)
         return 15;
+#if defined(_M_ARM64)
+    if (GrGLInterfaces::MakeWin())
+        return 16;
+#endif
 #endif
     return 0;
 }

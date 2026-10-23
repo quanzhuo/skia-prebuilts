@@ -106,7 +106,11 @@ def verify(dist, jobs, use_asan=True):
             extract_verified(archive, temporary, name)
             root = temporary / name
             manifest = verify_contents(root, info, system, cpu, profile)
-            if system == "linux":
+            if system == "windows" and cpu == "arm64":
+                imports = release.command_version(["dumpbin.exe", "/nologo", "/imports", str(root / "bin/skia.dll")]).lower()
+                if "wglget" in imports or "opengl32.dll" in imports:
+                    raise RuntimeError("Windows ARM64 package imports unsupported WGL")
+            elif system == "linux":
                 output = release.command_version(["ldd", str(root / "lib/libskia.so")])
                 if "not found" in output:
                     raise RuntimeError(output)

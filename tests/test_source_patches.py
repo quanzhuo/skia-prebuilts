@@ -29,7 +29,7 @@ class SourcePatchTests(unittest.TestCase):
         for system in ("windows", "linux", "darwin"):
             paths = package.get_source_patch_paths(system)
             self.assertIn("0002-include-pathops-in-skia.patch", [Path(p).name for p in paths])
-            self.assertEqual(len(paths), 2 if system == "windows" else 1)
+            self.assertEqual(len(paths), 3 if system == "windows" else 1)
             self.assertTrue(all(Path(p).is_file() for p in paths))
 
     def fingerprint(self, patch_paths, revision="abc123"):

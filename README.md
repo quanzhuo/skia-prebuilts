@@ -70,6 +70,8 @@ Windows needs Visual Studio C++ tools, a Windows SDK and native LLVM under
 For the pinned upstream revision, Windows ARM64 uses x64 GN/Ninja host executables
 under Windows emulation because the pinned ARM64 GN bootstrap package is unavailable.
 Target compilation and linking remain native ARM64.
+The Windows ARM64 GPU build also aligns the newer WGL factory with upstream's
+legacy factory: unsupported WGL returns null, while ANGLE/EGL/GLES remains enabled.
 
 On Windows, run commands through the developer environment wrapper:
 
